@@ -5,6 +5,7 @@ import { PageWrapper } from "@/components/PageWrapper";
 import { PermissionList } from "@/components/PermissionList";
 import { KeybindingsDisplay } from "@/components/KeybindingsDisplay";
 import { SettingsPriorityChain } from "@/components/SettingsPriorityChain";
+import { ScopeHeader } from "@/components/ScopeHeader";
 
 export default async function SettingsPage() {
   const config = await scanClaudeConfig();
@@ -19,9 +20,7 @@ export default async function SettingsPage() {
 
       {globalEntries.length > 0 && (
         <div className="mb-8">
-          <h2 className="text-xs font-medium text-text-dim uppercase tracking-wide mb-3">
-            Global Settings
-          </h2>
+          <ScopeHeader scope={{ type: "global" }} />
           <Card>
             <div className="space-y-1">
               {globalEntries.map(([key, value]) => (
@@ -49,13 +48,19 @@ export default async function SettingsPage() {
       )}
 
       <div>
-        <h2 className="text-xs font-medium text-text-dim uppercase tracking-wide mb-3">
-          Project Permissions
-        </h2>
         {config.projectSettings.length > 0 ? (
           <div className="space-y-6">
             {config.projectSettings.map((ps) => (
-              <Card key={ps.projectPath}>
+              <div key={ps.projectPath}>
+                <ScopeHeader
+                  scope={{
+                    type: "project",
+                    projectName: ps.projectName,
+                    projectPath: ps.projectPath,
+                  }}
+                  filePath={ps.projectPath}
+                />
+              <Card>
                 <div className="flex items-baseline justify-between mb-4">
                   <h3 className="text-sm font-medium">{ps.projectName}</h3>
                   <span className="text-xs text-text-dim">
@@ -81,6 +86,7 @@ export default async function SettingsPage() {
                   </div>
                 </div>
               </Card>
+              </div>
             ))}
           </div>
         ) : (

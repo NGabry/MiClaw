@@ -1,7 +1,9 @@
+import path from "path";
 import { scanClaudeConfig } from "@/lib/scanner";
 import { CommandCard } from "@/components/CommandCard";
 import { PageHeader } from "@/components/PageHeader";
 import { PageWrapper } from "@/components/PageWrapper";
+import { ScopeHeader } from "@/components/ScopeHeader";
 
 export default async function CommandsPage() {
   const config = await scanClaudeConfig();
@@ -25,9 +27,10 @@ export default async function CommandsPage() {
 
       {Array.from(grouped.entries()).map(([group, commands]) => (
         <div key={group} className="mb-8">
-          <h2 className="text-xs font-medium text-text-dim uppercase tracking-wide mb-3">
-            {group}
-          </h2>
+          <ScopeHeader
+            scope={commands[0].scope}
+            filePath={path.dirname(commands[0].filePath)}
+          />
           <div className="space-y-3">
             {commands.map((cmd) => (
               <CommandCard key={cmd.filePath} command={cmd} />

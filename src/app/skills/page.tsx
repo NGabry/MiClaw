@@ -1,7 +1,9 @@
+import path from "path";
 import { scanClaudeConfig } from "@/lib/scanner";
 import { SkillCard } from "@/components/SkillCard";
 import { PageHeader } from "@/components/PageHeader";
 import { PageWrapper } from "@/components/PageWrapper";
+import { ScopeHeader } from "@/components/ScopeHeader";
 
 export default async function SkillsPage() {
   const config = await scanClaudeConfig();
@@ -19,9 +21,10 @@ export default async function SkillsPage() {
 
       {globalSkills.length > 0 && (
         <div className="mb-8">
-          <h2 className="text-xs font-medium text-text-dim uppercase tracking-wide mb-3">
-            Global
-          </h2>
+          <ScopeHeader
+            scope={{ type: "global" }}
+            filePath={path.dirname(globalSkills[0].filePath)}
+          />
           <div className="space-y-3">
             {globalSkills.map((skill) => (
               <SkillCard key={skill.filePath} skill={skill} />
@@ -32,9 +35,10 @@ export default async function SkillsPage() {
 
       {projectSkills.length > 0 && (
         <div>
-          <h2 className="text-xs font-medium text-text-dim uppercase tracking-wide mb-3">
-            Project
-          </h2>
+          <ScopeHeader
+            scope={projectSkills[0].scope}
+            filePath={path.dirname(projectSkills[0].filePath)}
+          />
           <div className="space-y-3">
             {projectSkills.map((skill) => (
               <SkillCard key={skill.filePath} skill={skill} />

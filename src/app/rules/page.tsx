@@ -1,9 +1,12 @@
+import path from "path";
 import { scanClaudeConfig } from "@/lib/scanner";
 import { Card } from "@/components/Card";
 import { Badge } from "@/components/Badge";
 import { PageHeader } from "@/components/PageHeader";
 import { PageWrapper } from "@/components/PageWrapper";
 import { ExpandableBody } from "@/components/ExpandableBody";
+import { ScopeHeader } from "@/components/ScopeHeader";
+import type { Scope } from "@/lib/types";
 
 export default async function RulesPage() {
   const config = await scanClaudeConfig();
@@ -23,11 +26,15 @@ export default async function RulesPage() {
         count={config.instructionFiles.length}
       />
 
-      {Array.from(grouped.entries()).map(([project, files]) => (
+      {Array.from(grouped.entries()).map(([project, files]) => {
+        const firstDir = path.dirname(files[0].filePath);
+        const scope: Scope =
+          project === "Global"
+            ? { type: "global" }
+            : { type: "project", projectName: project, projectPath: firstDir };
+        return (
         <div key={project} className="mb-8">
-          <h2 className="text-xs font-medium text-text-dim uppercase tracking-wide mb-3">
-            {project}
-          </h2>
+          <ScopeHeader scope={scope} filePath={firstDir} />
           <div className="space-y-3">
             {files.map((file) => (
               <Card key={file.filePath}>
@@ -42,7 +49,8 @@ export default async function RulesPage() {
             ))}
           </div>
         </div>
-      ))}
+        );
+      })}
 
       {config.instructionFiles.length === 0 && (
         <p className="text-sm text-text-muted">No instruction files found.</p>

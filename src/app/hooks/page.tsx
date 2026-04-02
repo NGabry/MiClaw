@@ -2,6 +2,7 @@ import { scanClaudeConfig } from "@/lib/scanner";
 import { HooksDisplay } from "@/components/HooksDisplay";
 import { PageHeader } from "@/components/PageHeader";
 import { PageWrapper } from "@/components/PageWrapper";
+import { ScopeHeader } from "@/components/ScopeHeader";
 
 export default async function HooksPage() {
   const config = await scanClaudeConfig();
@@ -42,9 +43,7 @@ export default async function HooksPage() {
 
       {hasGlobalHooks && (
         <div className="mb-8">
-          <h2 className="text-xs font-medium text-text-dim uppercase tracking-wide mb-3">
-            Global
-          </h2>
+          <ScopeHeader scope={{ type: "global" }} />
           <HooksDisplay hooks={config.globalSettings.hooks!} />
         </div>
       )}
@@ -53,9 +52,14 @@ export default async function HooksPage() {
         <div className="space-y-8">
           {projectsWithHooks.map((ps) => (
             <div key={ps.projectPath}>
-              <h2 className="text-xs font-medium text-text-dim uppercase tracking-wide mb-3">
-                {ps.projectName}
-              </h2>
+              <ScopeHeader
+                scope={{
+                  type: "project",
+                  projectName: ps.projectName,
+                  projectPath: ps.projectPath,
+                }}
+                filePath={ps.projectPath}
+              />
               {ps.shared?.hooks && (
                 <HooksDisplay hooks={ps.shared.hooks} label="Shared settings" />
               )}

@@ -1,7 +1,9 @@
+import path from "path";
 import { scanClaudeConfig } from "@/lib/scanner";
 import { AgentCard } from "@/components/AgentCard";
 import { PageHeader } from "@/components/PageHeader";
 import { PageWrapper } from "@/components/PageWrapper";
+import { ScopeHeader } from "@/components/ScopeHeader";
 
 export default async function AgentsPage() {
   const config = await scanClaudeConfig();
@@ -19,9 +21,10 @@ export default async function AgentsPage() {
 
       {globalAgents.length > 0 && (
         <div className="mb-8">
-          <h2 className="text-xs font-medium text-text-dim uppercase tracking-wide mb-3">
-            Global
-          </h2>
+          <ScopeHeader
+            scope={{ type: "global" }}
+            filePath={path.dirname(globalAgents[0].filePath)}
+          />
           <div className="space-y-3">
             {globalAgents.map((agent) => (
               <AgentCard key={agent.filePath} agent={agent} />
@@ -32,9 +35,10 @@ export default async function AgentsPage() {
 
       {projectAgents.length > 0 && (
         <div>
-          <h2 className="text-xs font-medium text-text-dim uppercase tracking-wide mb-3">
-            Project
-          </h2>
+          <ScopeHeader
+            scope={projectAgents[0].scope}
+            filePath={path.dirname(projectAgents[0].filePath)}
+          />
           <div className="space-y-3">
             {projectAgents.map((agent) => (
               <AgentCard key={agent.filePath} agent={agent} />
