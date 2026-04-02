@@ -31,3 +31,8 @@ body {
   from { transform: translateX(100%); }
   to { transform: translateX(0); }
 }
+
+@keyframes pulseGlow {
+  0%, 100% { box-shadow: 0 0 8px -2px rgba(217, 119, 87, 0.3); }
+  50% { box-shadow: 0 0 20px -2px rgba(217, 119, 87, 0.5); }
+}
