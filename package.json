@@ -1,7 +1,16 @@
 {
-  "name": "miclaw",
+  "name": "miclaw-app",
   "version": "0.1.0",
-  "private": true,
+  "description": "A local dashboard that visualizes your Claude Code configuration",
+  "bin": {
+    "miclaw": "./bin/miclaw.mjs"
+  },
+  "files": [
+    "bin/",
+    ".next/standalone/",
+    ".next/static/",
+    "public/"
+  ],
   "scripts": {
     "dev": "next dev",
     "build": "next build",
@@ -9,8 +18,21 @@
     "lint": "eslint",
     "lint:fix": "eslint --fix",
     "typecheck": "tsc --noEmit",
-    "check": "bun run lint && bun run typecheck"
+    "check": "bun run lint && bun run typecheck",
+    "prepublishOnly": "bun run build"
   },
+  "keywords": [
+    "claude",
+    "claude-code",
+    "config",
+    "visualizer",
+    "dashboard"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/NGabry/MiClaw.git"
+  },
+  "license": "MIT",
   "dependencies": {
     "@types/d3-hierarchy": "^3.1.7",
     "d3-hierarchy": "^3.1.2",
