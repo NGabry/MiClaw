@@ -5,7 +5,7 @@ import { CLAUDE_DIR, PROJECTS_DIR } from "./constants";
 const SESSIONS_DIR = path.join(CLAUDE_DIR, "sessions");
 
 // How much of the JSONL tail to read for metadata
-const TAIL_READ_SIZE = 256 * 1024;
+const TAIL_READ_SIZE = 1024 * 1024; // 1MB
 
 export interface ActiveSession {
   pid: number;
@@ -72,7 +72,7 @@ function extractRecentMessages(tail: string, limit: number = 10): SessionMessage
         if (text) {
           messages.unshift({
             type: "user",
-            text: text.substring(0, 200),
+            text,
             timestamp: entry.timestamp ?? "",
           });
         }
@@ -86,7 +86,7 @@ function extractRecentMessages(tail: string, limit: number = 10): SessionMessage
         if (text) {
           messages.unshift({
             type: "assistant",
-            text: text.substring(0, 200),
+            text,
             timestamp: entry.timestamp ?? "",
           });
         }

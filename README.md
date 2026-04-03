@@ -8,6 +8,8 @@ MiClaw helps you maintain your lobsters. It scans your `~/.claude/` directory an
 
 It also allows editing of skills, slash commands, and rules directly in the app for easy centralized maintenance of all your claude files.
 
+MiClaw includes live session monitoring -- it scans running Claude Code processes, displays their status, conversation history, and git branch, and lets you type messages directly into a session's terminal from the dashboard.
+
 ## Quick Start
 
 ```bash

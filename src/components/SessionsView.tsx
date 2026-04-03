@@ -217,7 +217,7 @@ function SessionRow({ session, onKill }: { session: ActiveSession; onKill: () =>
                   <div key={i} className="flex gap-3">
                     <span className={`text-[10px] font-mono w-12 shrink-0 text-right
                       ${msg.type === "user" ? "text-accent" : "text-text-dim"}`}>
-                      {msg.type}
+                      {msg.type === "assistant" ? "claude" : msg.type}
                     </span>
                     <span className="text-[10px] font-mono text-text-dim w-12 shrink-0">
                       {formatTime(msg.timestamp)}

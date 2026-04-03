@@ -58,6 +58,15 @@ A visualization and editing dashboard for Claude Code configuration. Scans `~/.c
 - `src/components/OutputStyleCard.tsx` -- Output style configuration card.
 - `src/components/SettingsPriorityChain.tsx` -- Settings priority chain visualization.
 
+### Sessions feature (live session monitoring)
+- `src/lib/sessionScanner.ts` -- Scans `~/.claude/sessions/` PID files and reads JSONL logs from `~/.claude/projects/` to extract session metadata (title, git branch, recent messages, status).
+- `src/components/SessionsView.tsx` -- Client component: polls `/api/sessions` every 5s, displays live/stale sessions with expandable conversation history and an inline prompt input.
+- `src/app/sessions/page.tsx` -- Sessions page (renders `SessionsView`).
+- `src/app/api/sessions/route.ts` -- GET returns all sessions; DELETE kills a session by PID.
+- `src/app/api/sessions/type/route.ts` -- POST types a message into a session's terminal via a compiled Swift helper (`helpers/type-to-terminal`). Uses `osascript` to select the correct Terminal tab, then the Swift helper sends keystrokes without stealing focus.
+- `src/app/api/sessions/focus/route.ts` -- POST focuses a session's Terminal tab via AppleScript (finds the tab by TTY path).
+- `helpers/type-to-terminal.swift` -- Swift helper that types text into Terminal.app via the macOS Accessibility API. Must be compiled with `swiftc -O type-to-terminal.swift -o type-to-terminal`.
+
 ### Pages
 - `src/app/page.tsx` -- Overview page with sphere/tree visualization.
 - `src/app/agents/page.tsx` -- Agents detail page.
@@ -67,6 +76,7 @@ A visualization and editing dashboard for Claude Code configuration. Scans `~/.c
 - `src/app/hooks/page.tsx` -- Hooks detail page.
 - `src/app/settings/page.tsx` -- Settings detail page.
 - `src/app/rules/page.tsx` -- Rules / instruction files detail page.
+- `src/app/sessions/page.tsx` -- Live session monitoring page.
 - `src/app/projects/[slug]/page.tsx` -- Per-project detail page.
 
 ### Key patterns
