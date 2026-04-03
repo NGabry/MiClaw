@@ -433,6 +433,62 @@ async function discoverProjectPaths(): Promise<
   return projects;
 }
 
+// --- Filesystem-based project discovery ---
+// Scans directories for Claude config files even if they don't have
+// a ~/.claude/projects/ entry yet.
+
+const CLAUDE_INDICATORS = [
+  "CLAUDE.md",
+  "AGENTS.md",
+  ".clauderules",
+  ".claude",
+  ".mcp.json",
+];
+
+async function discoverByFilesystem(): Promise<string[]> {
+  const homeDir = CLAUDE_DIR.replace(/\/.claude$/, "");
+  const searchRoots = [path.join(homeDir, "Desktop")];
+  const discovered: string[] = [];
+
+  for (const root of searchRoots) {
+    if (!(await exists(root))) continue;
+    try {
+      const entries = await fs.readdir(root, { withFileTypes: true });
+      for (const entry of entries) {
+        if (!entry.isDirectory() || entry.name.startsWith(".")) continue;
+        const dirPath = path.join(root, entry.name);
+        // Check if this directory has any Claude indicator
+        for (const indicator of CLAUDE_INDICATORS) {
+          if (await exists(path.join(dirPath, indicator))) {
+            discovered.push(dirPath);
+            // Also check one level deeper for monorepo packages
+            try {
+              const subDirs = await fs.readdir(dirPath, { withFileTypes: true });
+              for (const sub of subDirs) {
+                if (!sub.isDirectory() || sub.name.startsWith(".")) continue;
+                const subPath = path.join(dirPath, sub.name);
+                for (const subIndicator of CLAUDE_INDICATORS) {
+                  if (await exists(path.join(subPath, subIndicator))) {
+                    discovered.push(subPath);
+                    break;
+                  }
+                }
+              }
+            } catch {
+              // Can't read subdirectories
+            }
+            break;
+          }
+        }
+      }
+    } catch {
+      // Can't read search root
+    }
+  }
+
+  return discovered;
+}
+
 // --- Main Scanner ---
 
 export async function scanClaudeConfig(): Promise<ClaudeConfig> {
@@ -460,12 +516,24 @@ export async function scanClaudeConfig(): Promise<ClaudeConfig> {
     hooks: extractHooks(globalSettingsRaw),
   };
 
-  // Discover projects
-  const projectPaths = await discoverProjectPaths();
+  // Discover projects from ~/.claude/projects/ and filesystem scan
+  const [registeredPaths, filesystemPaths] = await Promise.all([
+    discoverProjectPaths(),
+    discoverByFilesystem(),
+  ]);
+
+  // Merge: use registered paths + any filesystem-discovered paths not already covered
+  const knownPaths = new Set(registeredPaths.map((p) => p.decodedPath));
+  const allProjectPaths = [
+    ...registeredPaths,
+    ...filesystemPaths
+      .filter((p) => !knownPaths.has(p))
+      .map((p) => ({ encodedName: "", decodedPath: p })),
+  ];
 
   // Scan all projects in parallel
   const projectResults = await Promise.all(
-    projectPaths.map(async ({ encodedName, decodedPath }) => {
+    allProjectPaths.map(async ({ encodedName, decodedPath }) => {
       const projectName = deriveProjectName(decodedPath);
       const scope: Scope = {
         type: "project",

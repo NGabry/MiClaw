@@ -66,15 +66,27 @@ function computeTreeLayout(data: SphereData, width: number, height: number): Lay
 
   treeLayout(root);
 
-  return root.descendants().map((d) => ({
-    id: d.data.id,
-    name: d.data.name,
-    items: d.data.items,
-    x: (d.x ?? 0) + 60,
-    y: (d.y ?? 0) + 80,
-    parentX: d.parent ? (d.parent.x ?? 0) + 60 : undefined,
-    parentY: d.parent ? (d.parent.y ?? 0) + 80 : undefined,
-  }));
+  return root.descendants().map((d) => {
+    // Stagger siblings at the same depth to avoid label overlap
+    let staggerY = 0;
+    if (d.parent && d.depth > 0) {
+      const siblings = d.parent.children ?? [];
+      const siblingIndex = siblings.indexOf(d);
+      if (siblings.length > 3) {
+        staggerY = siblingIndex % 2 === 0 ? 0 : 40;
+      }
+    }
+
+    return {
+      id: d.data.id,
+      name: d.data.name,
+      items: d.data.items,
+      x: (d.x ?? 0) + 60,
+      y: (d.y ?? 0) + 80 + staggerY,
+      parentX: d.parent ? (d.parent.x ?? 0) + 60 : undefined,
+      parentY: d.parent ? (d.parent.y ?? 0) + 80 : undefined,
+    };
+  });
 }
 
 // --- Item summary for node bubbles ---
