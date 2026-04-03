@@ -22,9 +22,7 @@ export function KeybindingsDisplay({
           {keybindings.map((kb, i) => (
             <tr key={i} className="border-t border-border">
               <td className="py-2 pr-4">
-                <kbd className="px-1.5 py-0.5 bg-surface-raised rounded-sm text-xs text-accent">
-                  {kb.key}
-                </kbd>
+                <span className="font-mono text-sm text-accent">{kb.key}</span>
               </td>
               <td className="py-2 pr-4 text-xs text-text-muted">
                 {kb.command}

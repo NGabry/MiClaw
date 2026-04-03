@@ -1,45 +1,49 @@
 "use client";
 
 import type { SphereData, SphereItem, ProjectNode } from "@/lib/sphereData";
-import {
-  Bot, Zap, Terminal, Plug, FileText, Shield, Webhook, Keyboard, Palette, X,
-} from "lucide-react";
+import { X } from "lucide-react";
 
-const TYPE_ICON: Record<SphereItem["type"], React.ElementType> = {
-  agent: Bot, skill: Zap, command: Terminal, mcp: Plug,
-  rule: FileText, setting: Shield, hook: Webhook, keybinding: Keyboard, "output-style": Palette,
+const TYPE_LABEL: Record<SphereItem["type"], string> = {
+  agent: "agent",
+  skill: "skill",
+  command: "cmd",
+  mcp: "mcp",
+  rule: "rule",
+  setting: "config",
+  hook: "hook",
+  keybinding: "keys",
+  "output-style": "style",
 };
+
 const TYPE_ACCENT: Record<SphereItem["type"], boolean> = {
   agent: true, skill: true, mcp: true, rule: true,
   command: false, setting: false, hook: false, keybinding: false, "output-style": false,
 };
 
-function ItemChip({ item }: { item: SphereItem }) {
-  const Icon = TYPE_ICON[item.type];
+function ItemRow({ item }: { item: SphereItem }) {
   const isAccent = TYPE_ACCENT[item.type];
   const inner = (
-    <span
-      className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium
-        transition-all hover:ring-1 hover:ring-accent/30 cursor-pointer
-        ${isAccent ? "bg-accent/12 text-accent" : "bg-white/[0.04] text-text-muted"}`}
-      title={item.description}
-    >
-      <Icon size={12} />
-      {item.label}
-      {item.model && <span className="opacity-50 text-[10px]">{item.model}</span>}
-    </span>
+    <div className="flex items-baseline gap-3 py-1.5 px-1 -mx-1 rounded-sm hover:bg-surface-hover transition-colors cursor-pointer group">
+      <span className={`text-[10px] font-mono w-10 shrink-0 ${isAccent ? "text-accent/50" : "text-text-dim"}`}>
+        {TYPE_LABEL[item.type]}
+      </span>
+      <span className={`text-sm font-mono ${isAccent ? "text-text" : "text-text-muted"}`}>
+        {item.label}
+      </span>
+      {item.model && (
+        <span className="text-[10px] font-mono text-text-dim ml-auto">{item.model}</span>
+      )}
+    </div>
   );
-  return item.href ? <a href={item.href}>{inner}</a> : inner;
+  return item.href ? <a href={item.href} className="block">{inner}</a> : inner;
 }
 
-function ItemGroup({ label, items }: { label: string; items: SphereItem[] }) {
+function ItemSection({ label, items }: { label: string; items: SphereItem[] }) {
   if (items.length === 0) return null;
   return (
-    <div>
-      <p className="text-[10px] text-text-dim uppercase tracking-wider mb-1.5">{label}</p>
-      <div className="flex flex-wrap gap-1.5">
-        {items.map((i) => <ItemChip key={i.id} item={i} />)}
-      </div>
+    <div className="mt-4 first:mt-0">
+      <p className="text-[10px] text-text-dim font-mono mb-1"># {label}</p>
+      {items.map((i) => <ItemRow key={i.id} item={i} />)}
     </div>
   );
 }
@@ -54,20 +58,18 @@ function ScopeBlock({ label, variant, items }: {
   const isPrimary = variant === "primary";
 
   return (
-    <div className={`py-3 ${!isPrimary ? "border-t border-border" : ""}`}>
-      <p className={`text-[11px] font-semibold uppercase tracking-wider mb-3
-        ${isPrimary ? "text-accent" : "text-text-muted"}`}>
-        {label}
+    <div className={`py-4 ${!isPrimary ? "border-t border-border" : ""}`}>
+      <p className={`text-xs font-mono font-medium mb-2
+        ${isPrimary ? "text-accent" : "text-text-dim"}`}>
+        {isPrimary ? `[${label}]` : `[${label}]`}
       </p>
-      <div className="space-y-3">
-        <ItemGroup label="Agents" items={byType("agent")} />
-        <ItemGroup label="Skills" items={byType("skill")} />
-        <ItemGroup label="Commands" items={byType("command")} />
-        <ItemGroup label="MCP Servers" items={byType("mcp")} />
-        <ItemGroup label="Instruction Files" items={byType("rule")} />
-        <ItemGroup label="Hooks" items={byType("hook")} />
-        <ItemGroup label="Settings" items={byType("setting")} />
-      </div>
+      <ItemSection label="agents" items={byType("agent")} />
+      <ItemSection label="skills" items={byType("skill")} />
+      <ItemSection label="commands" items={byType("command")} />
+      <ItemSection label="mcp" items={byType("mcp")} />
+      <ItemSection label="rules" items={byType("rule")} />
+      <ItemSection label="hooks" items={byType("hook")} />
+      <ItemSection label="settings" items={byType("setting")} />
     </div>
   );
 }
@@ -106,7 +108,6 @@ export function DetailDrawer({
 }) {
   const isGlobal = nodeId === "global";
 
-  // Find the node's items
   let name: string;
   let items: SphereItem[];
 
@@ -114,7 +115,6 @@ export function DetailDrawer({
     name = "Global";
     items = data.global;
   } else {
-    // Search for the project node
     function findNode(nodes: ProjectNode[]): ProjectNode | null {
       for (const n of nodes) {
         if (n.path === nodeId) return n;
@@ -142,7 +142,7 @@ export function DetailDrawer({
     >
       <div className="flex items-start justify-between px-5 pt-5 pb-3 border-b border-border shrink-0">
         <div>
-          <h2 className="text-base font-medium text-accent">{name}</h2>
+          <h2 className="text-base font-mono font-medium text-text">{name}</h2>
           <p className="text-[11px] text-text-dim font-mono mt-0.5">{displayPath}</p>
         </div>
         <button
@@ -152,18 +152,18 @@ export function DetailDrawer({
           <X size={16} />
         </button>
       </div>
-      <div className="flex-1 overflow-y-auto px-5 py-4 space-y-0">
+      <div className="flex-1 overflow-y-auto px-5 py-2 space-y-0">
         <ScopeBlock label={name} variant="primary" items={items} />
         {ancestors.map((ancestor) => (
           <ScopeBlock
             key={ancestor.name}
-            label={`From ${ancestor.name}`}
+            label={`from ${ancestor.name}`}
             variant="inherited"
             items={ancestor.items}
           />
         ))}
         {!isGlobal && (
-          <ScopeBlock label="From Global" variant="inherited" items={data.global} />
+          <ScopeBlock label="from Global" variant="inherited" items={data.global} />
         )}
       </div>
     </div>

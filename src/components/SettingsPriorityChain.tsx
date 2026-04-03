@@ -1,5 +1,5 @@
 import type { ProjectSettings } from "@/lib/types";
-import { Badge } from "./Badge";
+
 
 interface SettingsPriorityChainProps {
   project: ProjectSettings;
@@ -48,7 +48,7 @@ export function SettingsPriorityChain({
                 >
                   {level.label}
                 </span>
-                {isActive && <Badge variant="accent">active</Badge>}
+                {isActive && <span className="font-mono text-[10px] text-accent">*</span>}
               </div>
               <p className="text-xs font-mono text-text-dim">{level.desc}</p>
             </div>

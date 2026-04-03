@@ -1,6 +1,5 @@
 import type { Skill } from "@/lib/types";
 import { Card } from "./Card";
-import { ModelBadge } from "./Badge";
 import { ExpandableBody } from "./ExpandableBody";
 
 export function SkillCard({ skill }: { skill: Skill }) {
@@ -9,8 +8,8 @@ export function SkillCard({ skill }: { skill: Skill }) {
   return (
     <Card id={skill.frontmatter.name}>
       <div className="flex items-center gap-2 flex-wrap">
-        <h3 className="text-sm font-medium">{frontmatter.name}</h3>
-        <ModelBadge model={frontmatter.model} />
+        <h3 className="font-mono font-medium text-text">{frontmatter.name}</h3>
+        {frontmatter.model && <span className="font-mono text-xs text-text-dim">{frontmatter.model}</span>}
       </div>
 
       <p className="mt-1.5 text-sm text-text-muted leading-relaxed">

@@ -1,6 +1,6 @@
 import type { HooksConfig } from "@/lib/types";
 import { Card } from "./Card";
-import { Badge } from "./Badge";
+
 
 interface HooksDisplayProps {
   hooks: HooksConfig;
@@ -25,7 +25,7 @@ export function HooksDisplay({ hooks, label }: HooksDisplayProps) {
           return (
           <Card key={event}>
             <div className="flex items-center gap-2 mb-2">
-              <Badge variant="accent">{event}</Badge>
+              <span className="font-mono text-sm font-medium text-accent">{event}</span>
               <span className="text-xs text-text-dim">
                 {entries.length} matcher{entries.length !== 1 ? "s" : ""}
               </span>
@@ -38,7 +38,7 @@ export function HooksDisplay({ hooks, label }: HooksDisplayProps) {
                   </p>
                   {m.hooks.map((hook, j) => (
                     <div key={j} className="mt-1 pl-3">
-                      <Badge variant="muted">{hook.type}</Badge>
+                      <span className="font-mono text-xs text-text-dim">{hook.type}</span>
                       {hook.command && (
                         <p className="text-xs font-mono text-text-dim mt-1 break-all">
                           {hook.command}

@@ -1,13 +1,12 @@
 import type { McpServer } from "@/lib/types";
 import { Card } from "./Card";
-import { Badge } from "./Badge";
 
 export function McpServerCard({ server }: { server: McpServer }) {
   return (
     <Card id={server.name}>
       <div className="flex items-center gap-2">
-        <h3 className="text-sm font-medium">{server.name}</h3>
-        <Badge variant="accent">{server.type}</Badge>
+        <h3 className="text-sm font-mono font-medium">{server.name}</h3>
+        <span className="font-mono text-xs text-text-dim">{server.type}</span>
       </div>
 
       <div className="mt-2 space-y-1">

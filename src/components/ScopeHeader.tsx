@@ -1,4 +1,3 @@
-import { Badge } from "./Badge";
 import type { Scope } from "@/lib/types";
 import { shortenHomePath } from "@/lib/constants";
 
@@ -13,9 +12,7 @@ export function ScopeHeader({ scope, filePath }: ScopeHeaderProps) {
 
   return (
     <div className="flex items-center gap-2 mb-3">
-      <Badge variant="muted">
-        {label.toUpperCase()}
-      </Badge>
+      <span className="font-mono text-xs text-text-dim">[{label.toUpperCase()}]</span>
       {displayPath && (
         <span className="text-xs text-text-dim font-mono">{displayPath}</span>
       )}
