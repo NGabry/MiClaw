@@ -4,7 +4,7 @@ import { ExpandableBody } from "./ExpandableBody";
 
 export function CommandCard({ command }: { command: Command }) {
   return (
-    <Card>
+    <Card id={command.name}>
       <h3 className="text-sm font-medium">{command.name}</h3>
 
       <ExpandableBody content={command.body} previewLines={3} />

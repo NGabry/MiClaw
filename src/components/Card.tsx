@@ -1,12 +1,14 @@
 interface CardProps {
   children: React.ReactNode;
   className?: string;
+  id?: string;
 }
 
-export function Card({ children, className = "" }: CardProps) {
+export function Card({ children, className = "", id }: CardProps) {
   return (
     <div
-      className={`border border-border rounded-sm p-5 ${className}`}
+      id={id}
+      className={`border border-border rounded-sm p-5 scroll-mt-4 ${className}`}
     >
       {children}
     </div>

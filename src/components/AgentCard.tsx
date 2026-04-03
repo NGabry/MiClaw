@@ -8,7 +8,7 @@ export function AgentCard({ agent }: { agent: Agent }) {
   const tools = frontmatter.tools?.split(",").map((t) => t.trim()) ?? [];
 
   return (
-    <Card>
+    <Card id={agent.frontmatter.name}>
       <div className="flex items-center gap-2 flex-wrap">
         <h3 className="text-sm font-medium">{frontmatter.name}</h3>
         <ModelBadge model={frontmatter.model} />

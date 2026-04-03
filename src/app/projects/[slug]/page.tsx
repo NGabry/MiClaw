@@ -144,7 +144,7 @@ export default async function ProjectDetailPage({
           </h2>
           <div className="space-y-3">
             {project.instructionFiles.map((file) => (
-              <Card key={file.filePath}>
+              <Card key={file.filePath} id={file.type}>
                 <div className="flex items-center gap-2 mb-2">
                   <Badge variant="default">{file.type}</Badge>
                   <span className="text-xs text-text-dim font-mono">

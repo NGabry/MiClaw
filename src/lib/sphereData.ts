@@ -26,6 +26,8 @@ export interface SphereData {
 function projectItems(project: ProjectSummary): SphereItem[] {
   const items: SphereItem[] = [];
 
+  const projectBase = `/projects/${encodeURIComponent(project.name)}`;
+
   for (const a of project.agents) {
     items.push({
       id: `agent-${a.filePath}`,
@@ -33,7 +35,7 @@ function projectItems(project: ProjectSummary): SphereItem[] {
       type: "agent",
       model: a.frontmatter.model,
       description: a.frontmatter.description,
-      href: `/projects/${encodeURIComponent(project.name)}`,
+      href: `${projectBase}#${encodeURIComponent(a.frontmatter.name)}`,
     });
   }
 
@@ -43,7 +45,7 @@ function projectItems(project: ProjectSummary): SphereItem[] {
       label: s.frontmatter.name,
       type: "skill",
       description: s.frontmatter.description,
-      href: `/projects/${encodeURIComponent(project.name)}`,
+      href: `${projectBase}#${encodeURIComponent(s.frontmatter.name)}`,
     });
   }
 
@@ -52,7 +54,7 @@ function projectItems(project: ProjectSummary): SphereItem[] {
       id: `cmd-${c.filePath}`,
       label: c.name,
       type: "command",
-      href: `/projects/${encodeURIComponent(project.name)}`,
+      href: `${projectBase}#${encodeURIComponent(c.name)}`,
     });
   }
 
@@ -63,7 +65,7 @@ function projectItems(project: ProjectSummary): SphereItem[] {
         label: s.name,
         type: "mcp",
         description: `${s.type}: ${s.command ?? s.url ?? ""}`,
-        href: "/mcp",
+        href: `${projectBase}#${encodeURIComponent(s.name)}`,
       });
     }
   }
@@ -73,7 +75,7 @@ function projectItems(project: ProjectSummary): SphereItem[] {
       id: `rule-${f.filePath}`,
       label: f.type,
       type: "rule",
-      href: `/projects/${encodeURIComponent(project.name)}`,
+      href: `${projectBase}#${encodeURIComponent(f.type)}`,
     });
   }
 
@@ -119,7 +121,7 @@ export function buildSphereData(config: ClaudeConfig): SphereData {
       type: "agent",
       model: a.frontmatter.model,
       description: a.frontmatter.description,
-      href: "/agents",
+      href: `/agents#${encodeURIComponent(a.frontmatter.name)}`,
     });
   }
 
@@ -129,7 +131,7 @@ export function buildSphereData(config: ClaudeConfig): SphereData {
       label: s.frontmatter.name,
       type: "skill",
       description: s.frontmatter.description,
-      href: "/skills",
+      href: `/skills#${encodeURIComponent(s.frontmatter.name)}`,
     });
   }
 

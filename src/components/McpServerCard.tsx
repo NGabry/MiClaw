@@ -4,7 +4,7 @@ import { Badge } from "./Badge";
 
 export function McpServerCard({ server }: { server: McpServer }) {
   return (
-    <Card>
+    <Card id={server.name}>
       <div className="flex items-center gap-2">
         <h3 className="text-sm font-medium">{server.name}</h3>
         <Badge variant="accent">{server.type}</Badge>

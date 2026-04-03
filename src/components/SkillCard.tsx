@@ -7,7 +7,7 @@ export function SkillCard({ skill }: { skill: Skill }) {
   const { frontmatter, body } = skill;
 
   return (
-    <Card>
+    <Card id={skill.frontmatter.name}>
       <div className="flex items-center gap-2 flex-wrap">
         <h3 className="text-sm font-medium">{frontmatter.name}</h3>
         <ModelBadge model={frontmatter.model} />
