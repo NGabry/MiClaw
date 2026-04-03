@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="public/logo.png" alt="MiClaw Logo" width="200" />
+  <img src="https://raw.githubusercontent.com/NGabry/MiClaw/main/public/logo.png" alt="MiClaw Logo" width="200" />
 </p>
 
 ## Overview
