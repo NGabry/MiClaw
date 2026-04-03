@@ -25,7 +25,7 @@ export function OverviewClient({ data }: { data: SphereData }) {
 
       {/* Sphere view */}
       <div className={`absolute inset-0 transition-opacity duration-300 ${view === "spheres" ? "opacity-100 z-10" : "opacity-0 z-0 pointer-events-none"}`}>
-        <SphereView data={data} selectedId={selectedId} onSelectedIdChange={setSelectedId} />
+        <SphereView data={data} selectedId={selectedId} onSelectedIdChange={setSelectedId} drawerOpen={drawerOpen} />
       </div>
 
       {/* Tree view */}

@@ -117,10 +117,11 @@ function computePackLayout(data: SphereData, size: number): CircleData[] {
 
 // --- Main ---
 
-export function SphereView({ data, selectedId, onSelectedIdChange }: {
+export function SphereView({ data, selectedId, onSelectedIdChange, drawerOpen = false }: {
   data: SphereData;
   selectedId: string | null;
   onSelectedIdChange: (id: string | null) => void;
+  drawerOpen?: boolean;
 }) {
   const setSelectedId = onSelectedIdChange;
   const containerRef = useRef<HTMLDivElement>(null);
@@ -141,9 +142,25 @@ export function SphereView({ data, selectedId, onSelectedIdChange }: {
   const circles = useMemo(() => computePackLayout(data, canvasSize), [data]);
   const visible = circles.filter((c) => c.kind !== "leaf");
 
+  // Compute ancestor path for selected node
+  const ancestorIds = useMemo(() => {
+    if (!selectedId) return new Set<string>();
+    const ids = new Set<string>();
+    ids.add(selectedId);
+    let currentId: string | undefined = selectedId;
+    while (currentId) {
+      const node = circles.find((c) => c.id === currentId);
+      if (!node?.parentId) break;
+      ids.add(node.parentId);
+      currentId = node.parentId;
+    }
+    return ids;
+  }, [selectedId, circles]);
+
   const fitDim = Math.min(viewSize.w, viewSize.h);
   const scale = fitDim / canvasSize;
-  const tx = (viewSize.w - canvasSize * scale) / 2;
+  const drawerOffset = drawerOpen ? -210 : 0;
+  const tx = (viewSize.w - canvasSize * scale) / 2 + drawerOffset;
   const ty = (viewSize.h - canvasSize * scale) / 2;
 
   return (
@@ -163,6 +180,7 @@ export function SphereView({ data, selectedId, onSelectedIdChange }: {
       >
         {visible.map((c, idx) => {
           const isSelected = c.id === selectedId;
+          const isOnPath = ancestorIds.has(c.id);
 
           if (c.kind === "global") {
             const isGlobalSelected = selectedId === "global";
@@ -171,7 +189,9 @@ export function SphereView({ data, selectedId, onSelectedIdChange }: {
                 key={`${c.id}-${idx}`}
                 className={`absolute rounded-full border cursor-pointer transition-all duration-300 z-10
                   ${isGlobalSelected
-                    ? "border-accent/40 bg-accent/[0.06] shadow-[0_0_50px_-10px_rgba(217,119,87,0.2)]"
+                    ? "border-accent/40 bg-accent/[0.06] animate-[pulseGlow_2s_ease-in-out_infinite]"
+                  : isOnPath
+                    ? "border-accent/30 bg-accent/[0.03]"
                     : "border-accent/15 bg-accent/[0.02] hover:border-accent/25"}`}
                 style={{ left: c.x - c.r, top: c.y - c.r, width: c.r * 2, height: c.r * 2 }}
                 onClick={(e) => {
@@ -204,10 +224,12 @@ export function SphereView({ data, selectedId, onSelectedIdChange }: {
                 key={`${c.id}-${idx}`}
                 className={`absolute rounded-full border cursor-pointer transition-all duration-300 z-20
                   ${isSelected
-                    ? "border-accent/40 bg-accent/[0.06] shadow-[0_0_50px_-10px_rgba(217,119,87,0.2)]"
-                    : hasAccent
-                      ? "border-accent/12 bg-white/[0.02] hover:border-accent/25"
-                      : "border-white/[0.06] bg-white/[0.02] hover:border-white/[0.12]"}`}
+                    ? "border-accent/40 bg-accent/[0.06] animate-[pulseGlow_2s_ease-in-out_infinite]"
+                    : isOnPath
+                      ? "border-accent/25 bg-accent/[0.03] shadow-[0_0_15px_-3px_rgba(217,119,87,0.2)]"
+                      : hasAccent
+                        ? "border-accent/12 bg-white/[0.02] hover:border-accent/25"
+                        : "border-white/[0.06] bg-white/[0.02] hover:border-white/[0.12]"}`}
                 style={{
                   left: c.x - c.r, top: c.y - c.r,
                   width: c.r * 2, height: c.r * 2,

@@ -173,27 +173,34 @@ export function TreeView({ data, selectedId, onSelectedIdChange }: {
         width={canvasW}
         height={canvasH}
       >
-        {lines.map((line) => (
-          <path
-            key={line.id}
-            d={line.d}
-            fill="none"
-            stroke="rgba(255,255,255,0.08)"
-            strokeWidth={2}
-          />
-        ))}
+        {lines.map((line) => {
+          const onPath = ancestorIds.has(line.id);
+          return (
+            <path
+              key={line.id}
+              d={line.d}
+              fill="none"
+              stroke={onPath ? "#d97757" : "rgba(255,255,255,0.08)"}
+              strokeWidth={onPath ? 2.5 : 2}
+              style={onPath ? { animation: "pulsePathGlow 3s ease-in-out infinite" } : undefined}
+            />
+          );
+        })}
         {/* Dots at connection points */}
         {nodes
           .filter((n) => n.parentX !== undefined)
-          .map((n) => (
-            <circle
-              key={`dot-${n.id}`}
-              cx={n.x}
-              cy={n.y - 24}
-              r={3}
-              fill="rgba(255,255,255,0.12)"
-            />
-          ))}
+          .map((n) => {
+            const onPath = ancestorIds.has(n.id);
+            return (
+              <circle
+                key={`dot-${n.id}`}
+                cx={n.x}
+                cy={n.y - 24}
+                r={onPath ? 4 : 3}
+                fill={onPath ? "rgba(217,119,87,0.5)" : "rgba(255,255,255,0.12)"}
+              />
+            );
+          })}
       </svg>
 
       {/* HTML layer for node bubbles */}
@@ -203,6 +210,7 @@ export function TreeView({ data, selectedId, onSelectedIdChange }: {
       >
         {nodes.map((node) => {
           const isSelected = node.id === selectedId;
+          const isOnPath = ancestorIds.has(node.id);
           const hasAccent = node.items.some((i) => TYPE_ACCENT[i.type]);
           const isGlobal = node.id === "global";
 
@@ -225,12 +233,14 @@ export function TreeView({ data, selectedId, onSelectedIdChange }: {
               <div
                 className={`w-12 h-12 rounded-full border-2 flex items-center justify-center transition-all
                   ${isSelected
-                    ? "border-accent bg-accent/15 shadow-[0_0_20px_-5px_rgba(217,119,87,0.3)]"
-                    : isGlobal
-                      ? "border-accent/30 bg-accent/[0.06] hover:border-accent/50"
-                      : hasAccent
-                        ? "border-accent/20 bg-white/[0.03] hover:border-accent/40"
-                        : "border-white/[0.08] bg-white/[0.02] hover:border-white/[0.15]"}`}
+                    ? "border-accent bg-accent/15 animate-[pulseGlow_2s_ease-in-out_infinite]"
+                    : isOnPath
+                      ? "border-accent/40 bg-accent/[0.08] shadow-[0_0_15px_-3px_rgba(217,119,87,0.25)]"
+                      : isGlobal
+                        ? "border-accent/30 bg-accent/[0.06] hover:border-accent/50"
+                        : hasAccent
+                          ? "border-accent/20 bg-white/[0.03] hover:border-accent/40"
+                          : "border-white/[0.08] bg-white/[0.02] hover:border-white/[0.15]"}`}
               >
                 <span className={`text-xs font-medium ${isSelected || isGlobal ? "text-accent" : "text-text-muted"}`}>
                   {node.items.length}
