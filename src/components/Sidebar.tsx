@@ -15,13 +15,13 @@ import {
 
 const NAV_ITEMS = [
   { href: "/", label: "Overview", icon: LayoutDashboard },
+  { href: "/rules", label: "Rules", icon: FileText },
   { href: "/agents", label: "Agents", icon: Bot },
   { href: "/skills", label: "Skills", icon: Zap },
   { href: "/commands", label: "Commands", icon: Terminal },
   { href: "/mcp", label: "MCP Servers", icon: Plug },
   { href: "/hooks", label: "Hooks", icon: Webhook },
   { href: "/settings", label: "Settings", icon: Shield },
-  { href: "/rules", label: "Rules", icon: FileText },
 ];
 
 export function Sidebar() {

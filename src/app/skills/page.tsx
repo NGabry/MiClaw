@@ -1,15 +1,14 @@
-import path from "path";
 import { scanClaudeConfig } from "@/lib/scanner";
-import { SkillCard } from "@/components/SkillCard";
+import { SkillScopeGroup } from "@/components/SkillScopeGroup";
 import { PageHeader } from "@/components/PageHeader";
 import { PageWrapper } from "@/components/PageWrapper";
 import { ScopeHeader } from "@/components/ScopeHeader";
+import { CLAUDE_DIR } from "@/lib/constants";
 
 export default async function SkillsPage() {
   const config = await scanClaudeConfig();
 
   const globalSkills = config.skills.filter((s) => s.scope.type === "global");
-  const projectSkills = config.skills.filter((s) => s.scope.type === "project");
 
   return (
     <PageWrapper>
@@ -23,29 +22,23 @@ export default async function SkillsPage() {
         <div className="mb-8">
           <ScopeHeader
             scope={{ type: "global" }}
-            filePath={path.dirname(globalSkills[0].filePath)}
+            filePath={CLAUDE_DIR}
           />
-          <div className="space-y-3">
-            {globalSkills.map((skill) => (
-              <SkillCard key={skill.filePath} skill={skill} />
-            ))}
-          </div>
+          <SkillScopeGroup skills={globalSkills} scopePath={CLAUDE_DIR} scopeType="global" />
         </div>
       )}
 
-      {projectSkills.length > 0 && (
-        <div>
-          <ScopeHeader
-            scope={projectSkills[0].scope}
-            filePath={path.dirname(projectSkills[0].filePath)}
-          />
-          <div className="space-y-3">
-            {projectSkills.map((skill) => (
-              <SkillCard key={skill.filePath} skill={skill} />
-            ))}
+      {config.projects
+        .filter((p) => p.skills.length > 0)
+        .map((project) => (
+          <div key={project.path} className="mb-8">
+            <ScopeHeader
+              scope={{ type: "project", projectName: project.name, projectPath: project.path }}
+              filePath={project.path}
+            />
+            <SkillScopeGroup skills={project.skills} scopePath={project.path} scopeType="project" />
           </div>
-        </div>
-      )}
+        ))}
     </PageWrapper>
   );
 }

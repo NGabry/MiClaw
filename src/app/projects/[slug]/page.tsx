@@ -51,7 +51,7 @@ export default async function ProjectDetailPage({
           </h2>
           <div className="space-y-3">
             {project.agents.map((agent) => (
-              <AgentCard key={agent.filePath} agent={agent} />
+              <AgentCard key={agent.filePath} agent={agent} scopePath={project.path} scopeType="project" />
             ))}
           </div>
         </section>
@@ -64,7 +64,7 @@ export default async function ProjectDetailPage({
           </h2>
           <div className="space-y-3">
             {project.skills.map((skill) => (
-              <SkillCard key={skill.filePath} skill={skill} />
+              <SkillCard key={skill.filePath} skill={skill} scopePath={project.path} scopeType="project" />
             ))}
           </div>
         </section>
@@ -77,7 +77,7 @@ export default async function ProjectDetailPage({
           </h2>
           <div className="space-y-3">
             {project.commands.map((cmd) => (
-              <CommandCard key={cmd.filePath} command={cmd} />
+              <CommandCard key={cmd.filePath} command={cmd} scopePath={project.path} />
             ))}
           </div>
         </section>

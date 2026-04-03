@@ -1,21 +1,11 @@
-import path from "path";
 import { scanClaudeConfig } from "@/lib/scanner";
-import { CommandCard } from "@/components/CommandCard";
+import { CommandScopeGroup } from "@/components/CommandScopeGroup";
 import { PageHeader } from "@/components/PageHeader";
 import { PageWrapper } from "@/components/PageWrapper";
 import { ScopeHeader } from "@/components/ScopeHeader";
 
 export default async function CommandsPage() {
   const config = await scanClaudeConfig();
-
-  // Group commands by project
-  const grouped = new Map<string, typeof config.commands>();
-  for (const cmd of config.commands) {
-    const key =
-      cmd.scope.type === "global" ? "Global" : cmd.scope.projectName;
-    if (!grouped.has(key)) grouped.set(key, []);
-    grouped.get(key)!.push(cmd);
-  }
 
   return (
     <PageWrapper>
@@ -25,19 +15,17 @@ export default async function CommandsPage() {
         count={config.commands.length}
       />
 
-      {Array.from(grouped.entries()).map(([group, commands]) => (
-        <div key={group} className="mb-8">
-          <ScopeHeader
-            scope={commands[0].scope}
-            filePath={path.dirname(commands[0].filePath)}
-          />
-          <div className="space-y-3">
-            {commands.map((cmd) => (
-              <CommandCard key={cmd.filePath} command={cmd} />
-            ))}
+      {config.projects
+        .filter((p) => p.commands.length > 0)
+        .map((project) => (
+          <div key={project.path} className="mb-8">
+            <ScopeHeader
+              scope={{ type: "project", projectName: project.name, projectPath: project.path }}
+              filePath={project.path}
+            />
+            <CommandScopeGroup commands={project.commands} scopePath={project.path} />
           </div>
-        </div>
-      ))}
+        ))}
 
       {config.commands.length === 0 && (
         <p className="text-sm text-text-muted">No commands found.</p>

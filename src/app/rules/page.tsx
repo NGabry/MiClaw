@@ -1,11 +1,9 @@
 import path from "path";
 import { scanClaudeConfig } from "@/lib/scanner";
-import { Card } from "@/components/Card";
-import { Badge } from "@/components/Badge";
 import { PageHeader } from "@/components/PageHeader";
 import { PageWrapper } from "@/components/PageWrapper";
-import { ExpandableBody } from "@/components/ExpandableBody";
 import { ScopeHeader } from "@/components/ScopeHeader";
+import { RuleCard } from "@/components/RuleCard";
 import type { Scope } from "@/lib/types";
 
 export default async function RulesPage() {
@@ -37,15 +35,12 @@ export default async function RulesPage() {
           <ScopeHeader scope={scope} filePath={firstDir} />
           <div className="space-y-3">
             {files.map((file) => (
-              <Card key={file.filePath}>
-                <div className="flex items-center gap-2 mb-2">
-                  <Badge variant="default">{file.type}</Badge>
-                  <span className="text-xs text-text-dim font-mono">
-                    {file.filePath}
-                  </span>
-                </div>
-                <ExpandableBody content={file.content} previewLines={8} />
-              </Card>
+              <RuleCard
+                key={file.filePath}
+                filePath={file.filePath}
+                type={file.type}
+                content={file.content}
+              />
             ))}
           </div>
         </div>

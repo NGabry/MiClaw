@@ -63,11 +63,11 @@ function ScopeBlock({ label, variant, items }: {
         ${isPrimary ? "text-accent" : "text-text-dim"}`}>
         {isPrimary ? `[${label}]` : `[${label}]`}
       </p>
+      <ItemSection label="rules" items={byType("rule")} />
       <ItemSection label="agents" items={byType("agent")} />
       <ItemSection label="skills" items={byType("skill")} />
       <ItemSection label="commands" items={byType("command")} />
       <ItemSection label="mcp" items={byType("mcp")} />
-      <ItemSection label="rules" items={byType("rule")} />
       <ItemSection label="hooks" items={byType("hook")} />
       <ItemSection label="settings" items={byType("setting")} />
     </div>

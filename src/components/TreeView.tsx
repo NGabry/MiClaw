@@ -61,8 +61,8 @@ function computeTreeLayout(data: SphereData, width: number, height: number): Lay
   const root = hierarchy(treeData, (d) => d.childNodes);
 
   const treeLayout = tree<TreeDatum>()
-    .size([width - 120, height - 160])
-    .separation((a, b) => (a.parent === b.parent ? 1.2 : 1.8));
+    .size([width - 80, height - 160])
+    .separation((a, b) => (a.parent === b.parent ? 1 : 1.5));
 
   treeLayout(root);
 
@@ -122,11 +122,12 @@ export function TreeView({ data, selectedId, onSelectedIdChange }: {
   }, []);
 
   const drawerOpen = selectedId !== null;
-  const availableW = drawerOpen ? viewSize.w - 420 : viewSize.w;
-  const canvasW = Math.max(availableW, 600);
+  const canvasW = Math.max(drawerOpen ? viewSize.w - 420 : viewSize.w, 600);
   const canvasH = Math.max(viewSize.h, 500);
 
   const nodes = useMemo(() => computeTreeLayout(data, canvasW, canvasH), [data, canvasW, canvasH]);
+
+  const actualCanvasW = canvasW;
 
   // Compute ancestor path for selected node
   const ancestorIds = useMemo(() => {
@@ -167,10 +168,13 @@ export function TreeView({ data, selectedId, onSelectedIdChange }: {
       className="w-full h-full overflow-auto relative"
       onClick={() => setSelectedId(null)}
     >
+      <div
+        className="transition-all duration-500 ease-out"
+      >
       {/* SVG layer for connector lines */}
       <svg
-        className="absolute inset-0 pointer-events-none transition-all duration-500"
-        width={canvasW}
+        className="absolute inset-0 pointer-events-none"
+        width={actualCanvasW}
         height={canvasH}
       >
         {lines.map((line) => {
@@ -206,7 +210,7 @@ export function TreeView({ data, selectedId, onSelectedIdChange }: {
       {/* HTML layer for node bubbles */}
       <div
         className="relative transition-all duration-500"
-        style={{ width: canvasW, height: canvasH }}
+        style={{ width: actualCanvasW, height: canvasH }}
       >
         {nodes.map((node) => {
           const isSelected = node.id === selectedId;
@@ -262,6 +266,7 @@ export function TreeView({ data, selectedId, onSelectedIdChange }: {
         })}
       </div>
 
+      </div>{/* end transform wrapper */}
     </div>
   );
 }
