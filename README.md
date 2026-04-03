@@ -17,7 +17,7 @@ MiClaw scans your `~/.claude/` directory and project-level configuration files t
 ## Quick Start
 
 ```bash
-npx miclaw
+npx miclaw-app
 ```
 
 MiClaw will start a local server, find an open port, and open your browser. Press Ctrl+C to stop.
