@@ -287,20 +287,9 @@ export function SphereView({ data, selectedId, onSelectedIdChange, drawerOpen = 
                   </div>
                 </div>
 
-                {/* External name + leader line for small circles */}
+                {/* External name for small circles */}
                 {!nameFitsInside && (
                   <>
-                    <svg
-                      className="absolute pointer-events-none z-10"
-                      style={{
-                        left: goRight ? c.x + c.r : 0,
-                        top: c.y - 0.5,
-                        width: goRight ? 80 : c.x - c.r,
-                        height: 1,
-                      }}
-                    >
-                      <line x1="0" y1="0" x2="100%" y2="0" stroke="rgba(255,255,255,0.08)" strokeWidth={1} />
-                    </svg>
                     <div
                       className="absolute z-30 cursor-pointer"
                       style={goRight

@@ -8,13 +8,16 @@ import { X, Trash2 } from "lucide-react";
 import { EditPencil } from "./EditPencil";
 import { saveAgent, deleteItem } from "@/lib/actions";
 
-export function AgentCard({ agent, scopePath, scopeType }: {
-  agent: Agent;
+export function AgentCard({ agent, scopePath, scopeType, isNew, onCancel }: {
+  agent?: Agent;
   scopePath: string;
   scopeType: "global" | "project";
+  isNew?: boolean;
+  onCancel?: () => void;
 }) {
-  const { frontmatter, body } = agent;
-  const [editing, setEditing] = useState(false);
+  const frontmatter = agent?.frontmatter;
+  const body = agent?.body;
+  const [editing, setEditing] = useState(!!isNew);
   const [saving, setSaving] = useState(false);
   const [hovered, setHovered] = useState(false);
   const formRef = useRef<HTMLFormElement>(null);
@@ -30,7 +33,16 @@ export function AgentCard({ agent, scopePath, scopeType }: {
     }
   }
 
+  function handleCancel() {
+    if (isNew) {
+      onCancel?.();
+    } else {
+      setEditing(false);
+    }
+  }
+
   async function handleDelete() {
+    if (!agent || !frontmatter) return;
     if (!window.confirm(`Delete agent "${frontmatter.name}"?`)) return;
     const formData = new FormData();
     formData.set("filePath", agent.filePath);
@@ -39,26 +51,31 @@ export function AgentCard({ agent, scopePath, scopeType }: {
   }
 
   if (editing) {
+    const isCreating = !agent;
     return (
-      <Card id={frontmatter.name} className="border-accent/30">
+      <Card id={frontmatter?.name ?? "new-agent"} className="border-accent/30">
         <form ref={formRef} action={handleSave}>
           <input type="hidden" name="scopeType" value={scopeType} />
           <input type="hidden" name="scopePath" value={scopePath} />
-          <input type="hidden" name="filePath" value={agent.filePath} />
+          {agent && <input type="hidden" name="filePath" value={agent.filePath} />}
 
           <div className="flex items-center justify-between mb-3">
-            <span className="text-xs font-mono text-text-dim">editing agent</span>
+            <span className="text-xs font-mono text-text-dim">
+              {isCreating ? "new agent" : "editing agent"}
+            </span>
             <div className="flex gap-1">
+              {!isCreating && (
+                <button
+                  type="button"
+                  onClick={handleDelete}
+                  className="p-1 rounded-sm text-text-dim hover:text-red-400 hover:bg-surface-hover transition-colors"
+                >
+                  <Trash2 size={13} />
+                </button>
+              )}
               <button
                 type="button"
-                onClick={handleDelete}
-                className="p-1 rounded-sm text-text-dim hover:text-red-400 hover:bg-surface-hover transition-colors"
-              >
-                <Trash2 size={13} />
-              </button>
-              <button
-                type="button"
-                onClick={() => setEditing(false)}
+                onClick={handleCancel}
                 className="p-1 rounded-sm text-text-dim hover:text-text hover:bg-surface-hover transition-colors"
               >
                 <X size={14} />
@@ -71,7 +88,7 @@ export function AgentCard({ agent, scopePath, scopeType }: {
               <label className="block text-[10px] font-mono text-text-dim mb-1">name</label>
               <input
                 name="name"
-                defaultValue={frontmatter.name}
+                defaultValue={frontmatter?.name ?? ""}
                 required
                 className="w-full bg-surface-raised border border-border rounded-sm px-3 py-1.5 text-sm font-mono text-text
                   focus:border-accent focus:outline-none"
@@ -81,7 +98,7 @@ export function AgentCard({ agent, scopePath, scopeType }: {
               <label className="block text-[10px] font-mono text-text-dim mb-1">description</label>
               <input
                 name="description"
-                defaultValue={frontmatter.description}
+                defaultValue={frontmatter?.description ?? ""}
                 required
                 className="w-full bg-surface-raised border border-border rounded-sm px-3 py-1.5 text-sm font-mono text-text
                   focus:border-accent focus:outline-none"
@@ -91,7 +108,7 @@ export function AgentCard({ agent, scopePath, scopeType }: {
               <label className="block text-[10px] font-mono text-text-dim mb-1">model</label>
               <select
                 name="model"
-                defaultValue={frontmatter.model ?? ""}
+                defaultValue={frontmatter?.model ?? ""}
                 className="w-full bg-surface-raised border border-border rounded-sm px-3 py-1.5 text-sm font-mono text-text
                   focus:border-accent focus:outline-none"
               >
@@ -105,7 +122,7 @@ export function AgentCard({ agent, scopePath, scopeType }: {
               <label className="block text-[10px] font-mono text-text-dim mb-1">body</label>
               <textarea
                 name="body"
-                defaultValue={body}
+                defaultValue={body ?? ""}
                 rows={16}
                 className="w-full bg-surface-raised border border-border rounded-sm px-3 py-1.5 text-sm font-mono text-text
                   focus:border-accent focus:outline-none resize-y"
@@ -119,12 +136,14 @@ export function AgentCard({ agent, scopePath, scopeType }: {
             className="mt-4 w-full py-2 bg-accent text-surface font-mono text-sm font-medium
               rounded-sm hover:bg-accent-dim transition-colors disabled:opacity-50"
           >
-            {saving ? "Saving..." : "Save"}
+            {saving ? "Saving..." : isCreating ? "Create" : "Save"}
           </button>
         </form>
       </Card>
     );
   }
+
+  if (!frontmatter) return null;
 
   return (
     <Card id={frontmatter.name} onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)}>
