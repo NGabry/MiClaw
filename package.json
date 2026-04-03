@@ -7,6 +7,7 @@
   },
   "files": [
     "bin/",
+    "helpers/",
     ".next/standalone/",
     ".next/static/",
     "public/"
@@ -19,7 +20,8 @@
     "lint:fix": "eslint --fix",
     "typecheck": "tsc --noEmit",
     "check": "bun run lint && bun run typecheck",
-    "prepublishOnly": "bun run build"
+    "build:helper": "cd helpers && swiftc -O type-to-terminal.swift -o type-to-terminal 2>/dev/null || echo 'Swift helper skipped (non-macOS)'",
+    "prepublishOnly": "bun run build:helper && bun run build"
   },
   "keywords": [
     "claude",

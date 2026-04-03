@@ -10,7 +10,11 @@ It also allows editing of skills, slash commands, and rules directly in the app 
 
 MiClaw includes live session monitoring -- it scans running Claude Code processes, displays their status, conversation history, and git branch, and lets you type messages directly into a session's terminal from the dashboard.
 
+**Optimized for macOS.** Session messaging uses a native Swift helper to type directly into Terminal.app without stealing focus. The core visualization and editing features work on any platform, but the full experience is designed for macOS.
+
 ## Quick Start
+
+Requires macOS and Node.js v20+.
 
 ```bash
 npx miclaw-app
