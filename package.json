@@ -1,7 +1,7 @@
 {
   "name": "miclaw-app",
-  "version": "0.1.0",
-  "description": "A local dashboard that visualizes your Claude Code configuration",
+  "version": "0.2.0",
+  "description": "Maintain your lobsters",
   "bin": {
     "miclaw": "./bin/miclaw.mjs"
   },
