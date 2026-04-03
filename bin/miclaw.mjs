@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 
-import { spawn, execSync } from "child_process";
-import { existsSync, cpSync, mkdirSync } from "fs";
+import { spawn, execSync, execFileSync } from "child_process";
+import { existsSync, cpSync, mkdirSync, writeFileSync, unlinkSync } from "fs";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
 import { createServer } from "net";
+import { tmpdir } from "os";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const projectRoot = join(__dirname, "..");
@@ -49,6 +50,24 @@ function ensureStaticAssets() {
   }
 }
 
+function checkAccessibilityPermission() {
+  if (process.platform !== "darwin") return;
+  try {
+    // Trigger the macOS accessibility permission dialog with a no-op keystroke test
+    const scriptPath = join(tmpdir(), "miclaw-perm-check.scpt");
+    writeFileSync(scriptPath, [
+      'tell application "System Events"',
+      '  key code 0 using {}',  // No-op: press nothing
+      'end tell',
+    ].join("\n"));
+    execFileSync("osascript", [scriptPath], { timeout: 5000, stdio: "ignore" });
+    try { unlinkSync(scriptPath); } catch {}
+  } catch {
+    console.log("\n  Note: MiClaw needs Accessibility permission to send messages to terminal sessions.");
+    console.log("  Grant access in: System Settings > Privacy & Security > Accessibility\n");
+  }
+}
+
 async function main() {
   if (!existsSync(standaloneServer)) {
     console.log("  Building MiClaw (first run only)...\n");
@@ -56,6 +75,7 @@ async function main() {
   }
 
   ensureStaticAssets();
+  checkAccessibilityPermission();
 
   const port = await findOpenPort();
   console.log(`\n  MiClaw  http://localhost:${port}\n`);
