@@ -6,7 +6,7 @@
 
 MiClaw helps you maintain your lobsters. It scans your `~/.claude/` directory and project-level configuration files to present a unified view of how Claude Code is set up on your machine. It surfaces agents, skills, slash commands, MCP servers, hooks, settings, permissions, keybindings, and instruction files to help you visulaize inheritance and nesting patterns among your different claude powered projects.
 
-It also allows editing of skills, slash commands, and rules directly in the app for easy centralized maintainence of all your claude files.
+It also allows editing of skills, slash commands, and rules directly in the app for easy centralized maintenance of all your claude files.
 
 ## Quick Start
 
