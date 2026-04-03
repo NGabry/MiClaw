@@ -1,23 +1,12 @@
-<h1 align="center">MiClaw</h1>
-
 <p align="center">
   <img src="public/logo.png" alt="MiClaw Logo" width="200" />
 </p>
 
-<p align="center">A local dashboard that visualizes your Claude Code configuration.</p>
-
-<p align="center">
-  <img src="public/screenshot.png" alt="MiClaw Overview" width="800" />
-</p>
-
 ## Overview
 
-MiClaw scans your `~/.claude/` directory and project-level configuration files to present a unified view of how Claude Code is set up on your machine. It surfaces agents, skills, slash commands, MCP servers, hooks, settings, permissions, keybindings, and instruction files.
+MiClaw helps you maintain your lobsters. It scans your `~/.claude/` directory and project-level configuration files to present a unified view of how Claude Code is set up on your machine. It surfaces agents, skills, slash commands, MCP servers, hooks, settings, permissions, keybindings, and instruction files to help you visulaize inheritance and nesting patterns among your different claude powered projects.
 
-## Features
-
-- **Two visualization modes** -- Circle-pack (sphere) and rooted tree views
-- **Inline editing** -- Edit agents, skills, commands, and instruction files directly on their cards via Server Actions
+It also allows editing of skills, slash commands, and rules directly in the app for easy centralized maintainence of all your claude files.
 
 ## Quick Start
 
