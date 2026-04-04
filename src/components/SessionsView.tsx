@@ -2,10 +2,9 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import type { ActiveSession } from "@/lib/sessionScanner";
-import { Skull, Clock, GitBranch, Terminal, Bot, ChevronDown, ChevronRight, ExternalLink } from "lucide-react";
+import { Skull, Clock, GitBranch, Terminal, Bot, ChevronDown, ChevronRight, ExternalLink, GripVertical } from "lucide-react";
 import { VimEditor } from "./VimEditor";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
+import { TerminalMirror } from "./TerminalMirror";
 
 const POLL_INTERVAL = 500;
 
@@ -19,14 +18,6 @@ function formatDuration(startedAt: number): string {
   return `${hours}h ${mins % 60}m`;
 }
 
-function formatTime(timestamp: string): string {
-  if (!timestamp) return "";
-  try {
-    return new Date(timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-  } catch {
-    return "";
-  }
-}
 
 function StatusDot({ status, isAlive, maybeWaiting }: { status?: string; isAlive: boolean; maybeWaiting?: boolean }) {
   if (!isAlive) return <span className="w-2.5 h-2.5 rounded-full bg-text-dim inline-block shrink-0" title="Dead" />;
@@ -34,8 +25,6 @@ function StatusDot({ status, isAlive, maybeWaiting }: { status?: string; isAlive
   if (status === "busy") return <span className="w-2.5 h-2.5 rounded-full bg-accent animate-pulse inline-block shrink-0" title="Busy" />;
   return <span className="w-2.5 h-2.5 rounded-full bg-green-500 inline-block shrink-0" title="Idle" />;
 }
-
-// --- Prompt input with streaming response ---
 
 async function focusTerminal(pid: number) {
   try {
@@ -49,6 +38,8 @@ async function focusTerminal(pid: number) {
   }
 }
 
+// --- Prompt input ---
+
 function SessionPrompt({ session, onInputRef }: { session: ActiveSession; onInputRef?: (el: HTMLInputElement | null) => void }) {
   const [sending, setSending] = useState(false);
   const [permError, setPermError] = useState(false);
@@ -58,22 +49,6 @@ function SessionPrompt({ session, onInputRef }: { session: ActiveSession; onInpu
 
     setSending(true);
     setPermError(false);
-
-    // Handle /name command
-    if (text.startsWith("/name ")) {
-      const newName = text.slice(6).trim();
-      if (newName) {
-        try {
-          await fetch("/api/sessions/rename", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ sessionId: session.sessionId, name: newName }),
-          });
-        } catch { /* silent */ }
-      }
-      setSending(false);
-      return;
-    }
 
     try {
       const res = await fetch("/api/sessions/type", {
@@ -102,7 +77,7 @@ function SessionPrompt({ session, onInputRef }: { session: ActiveSession; onInpu
       )}
       <VimEditor
         onSubmit={handleSubmit}
-        placeholder="Type into this session... (/name to rename) -- vim enabled"
+        placeholder="Type into this session... -- vim enabled"
         disabled={sending || !session.isAlive}
         inputRef={(el) => onInputRef?.(el as HTMLInputElement | null)}
       />
@@ -120,6 +95,11 @@ function SessionRow({
   onToggleExpand,
   onRowRef,
   onInputRef,
+  index,
+  onDragStart,
+  onDragOver,
+  onDragEnd,
+  isDragOver,
 }: {
   session: ActiveSession;
   onKill: () => void;
@@ -128,23 +108,22 @@ function SessionRow({
   onToggleExpand: () => void;
   onRowRef: (el: HTMLDivElement | null) => void;
   onInputRef: (el: HTMLInputElement | null) => void;
+  index: number;
+  onDragStart: (index: number) => void;
+  onDragOver: (e: React.DragEvent, index: number) => void;
+  onDragEnd: () => void;
+  isDragOver: boolean;
 }) {
   const [hovered, setHovered] = useState(false);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
-
-  // Auto-scroll to bottom when messages update or session is expanded
-  useEffect(() => {
-    if (expanded) {
-      setTimeout(() => {
-        messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-      }, 50);
-    }
-  }, [session.recentMessages.length, expanded]);
 
   return (
     <div
       ref={onRowRef}
-      className={`border-b border-border ${!session.isAlive ? "opacity-30" : ""} ${isVimSelected ? "border-l-2 border-l-accent bg-surface-hover/30" : ""}`}
+      draggable
+      onDragStart={(e) => { e.dataTransfer.effectAllowed = "move"; onDragStart(index); }}
+      onDragOver={(e) => onDragOver(e, index)}
+      onDragEnd={onDragEnd}
+      className={`border-b border-border ${!session.isAlive ? "opacity-30" : ""} ${isVimSelected ? "border-l-2 border-l-accent bg-surface-hover/30" : ""} ${isDragOver ? "border-t-2 border-t-accent" : ""}`}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
@@ -153,6 +132,10 @@ function SessionRow({
         className="flex items-center gap-4 py-4 px-2 cursor-pointer hover:bg-surface-hover/50 transition-colors"
         onClick={onToggleExpand}
       >
+        <span className="text-text-dim/30 shrink-0 cursor-grab active:cursor-grabbing">
+          <GripVertical size={14} />
+        </span>
+
         <span className="text-text-dim shrink-0">
           {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
         </span>
@@ -230,59 +213,10 @@ function SessionRow({
             </div>
           )}
 
-          {/* Recent messages */}
-          {session.recentMessages.length > 0 && (
-            <div className="mb-3">
-              <p className="text-[10px] font-mono text-text-dim mb-1.5"># conversation</p>
-              <div className="max-h-96 overflow-y-auto space-y-1.5 border border-border rounded-sm p-3">
-                {session.recentMessages.map((msg, i) => {
-                  const labelMap: Record<string, string> = {
-                    user: "user",
-                    assistant: "claude",
-                    system: "system",
-                    tool_use: msg.toolName ?? "tool",
-                    tool_result: "result",
-                  };
-                  const colorMap: Record<string, string> = {
-                    user: "text-accent",
-                    assistant: "text-text-dim",
-                    system: "text-text-dim",
-                    tool_use: "text-yellow-500/80",
-                    tool_result: "text-text-dim",
-                  };
-
-                  return (
-                    <div key={i} className={`flex gap-3 ${msg.type === "tool_use" || msg.type === "tool_result" ? "opacity-60" : ""}`}>
-                      <span className={`text-[10px] font-mono w-14 shrink-0 text-right ${colorMap[msg.type] ?? "text-text-dim"}`}>
-                        {labelMap[msg.type] ?? msg.type}
-                      </span>
-                      <span className="text-[10px] font-mono text-text-dim w-12 shrink-0">
-                        {formatTime(msg.timestamp)}
-                      </span>
-                      {msg.type === "tool_use" ? (
-                        <p className="text-[11px] font-mono text-yellow-500/60 whitespace-pre-wrap break-all flex-1">
-                          {msg.text}
-                        </p>
-                      ) : msg.type === "tool_result" ? (
-                        <p className="text-[10px] font-mono text-text-dim whitespace-pre-wrap break-all flex-1 truncate">
-                          {msg.text}
-                        </p>
-                      ) : msg.type === "user" ? (
-                        <p className="text-xs font-mono text-text-muted whitespace-pre-wrap break-all flex-1">
-                          {msg.text}
-                        </p>
-                      ) : (
-                        <div className="text-xs font-mono text-text-muted flex-1 prose prose-invert prose-xs max-w-none">
-                          <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.text}</ReactMarkdown>
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-                <div ref={messagesEndRef} />
-              </div>
-            </div>
-          )}
+          {/* Terminal mirror (read-only, prompt area stripped) */}
+          <div className="mb-3">
+            <TerminalMirror pid={session.pid} />
+          </div>
 
           {/* Prompt input */}
           {session.isAlive && <SessionPrompt session={session} onInputRef={onInputRef} />}
@@ -299,6 +233,9 @@ export function SessionsView() {
   const [loading, setLoading] = useState(true);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [expandedSet, setExpandedSet] = useState<Set<string>>(new Set());
+  const [customOrder, setCustomOrder] = useState<string[] | null>(null);
+  const [dragIndex, setDragIndex] = useState<number | null>(null);
+  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
 
   const rowRefs = useRef<Map<number, HTMLDivElement | null>>(new Map());
   const inputRefs = useRef<Map<number, HTMLInputElement | null>>(new Map());
@@ -338,7 +275,7 @@ export function SessionsView() {
   // Auto-scroll selected row into view
   useEffect(() => {
     if (sessions.length === 0) return;
-    const session = sessions[selectedIndex];
+    const session = orderedRef.current[selectedIndex];
     if (!session) return;
     const el = rowRefs.current.get(session.pid);
     if (el) el.scrollIntoView({ block: "nearest", behavior: "smooth" });
@@ -349,7 +286,7 @@ export function SessionsView() {
   }
 
   function toggleExpand(index: number) {
-    const s = sessions[index];
+    const s = orderedRef.current[index];
     if (!s) return;
     const key = sessionKey(s);
     setExpandedSet((prev) => {
@@ -359,6 +296,41 @@ export function SessionsView() {
       return next;
     });
   }
+
+  // --- Drag-to-reorder ---
+  function handleDragStart(index: number) {
+    setDragIndex(index);
+  }
+
+  function handleDragOver(e: React.DragEvent, index: number) {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    setDragOverIndex(index);
+  }
+
+  function handleDragEnd() {
+    if (dragIndex !== null && dragOverIndex !== null && dragIndex !== dragOverIndex) {
+      const ordered = [...orderedSessions];
+      const [moved] = ordered.splice(dragIndex, 1);
+      ordered.splice(dragOverIndex, 0, moved);
+      setCustomOrder(ordered.map(sessionKey));
+      setSelectedIndex(dragOverIndex);
+    }
+    setDragIndex(null);
+    setDragOverIndex(null);
+  }
+
+  // Apply custom ordering if set, otherwise use API order
+  const orderedSessions = customOrder
+    ? [...sessions].sort((a, b) => {
+        const ai = customOrder.indexOf(sessionKey(a));
+        const bi = customOrder.indexOf(sessionKey(b));
+        return (ai === -1 ? Infinity : ai) - (bi === -1 ? Infinity : bi);
+      })
+    : sessions;
+
+  const orderedRef = useRef(orderedSessions);
+  orderedRef.current = orderedSessions;
 
   async function handleKill(pid: number) {
     if (!window.confirm(`Kill session with PID ${pid}?`)) return;
@@ -391,7 +363,8 @@ export function SessionsView() {
         return;
       }
 
-      if (sessions.length === 0) return;
+      const ordered = orderedRef.current;
+      if (ordered.length === 0) return;
 
       // Handle gg sequence
       if (pendingGRef.current) {
@@ -401,14 +374,13 @@ export function SessionsView() {
           setSelectedIndex(0);
           return;
         }
-        // Not a second g, fall through
       }
 
       switch (e.key) {
         case "j":
         case "ArrowDown":
           e.preventDefault();
-          setSelectedIndex((prev) => Math.min(prev + 1, sessions.length - 1));
+          setSelectedIndex((prev) => Math.min(prev + 1, ordered.length - 1));
           break;
 
         case "k":
@@ -425,7 +397,7 @@ export function SessionsView() {
         case "Escape":
         case "h": {
           e.preventDefault();
-          const s = sessions[selectedIndex];
+          const s = ordered[selectedIndex];
           if (s) {
             const key = sessionKey(s);
             setExpandedSet((prev) => {
@@ -440,14 +412,12 @@ export function SessionsView() {
         case "i":
         case "/": {
           e.preventDefault();
-          const s = sessions[selectedIndex];
+          const s = ordered[selectedIndex];
           if (!s) break;
-          // Ensure expanded
           const key = sessionKey(s);
           if (!expandedSet.has(key)) {
             setExpandedSet((prev) => new Set(prev).add(key));
           }
-          // Focus input after render
           setTimeout(() => {
             const input = inputRefs.current.get(s.pid);
             if (input) input.focus();
@@ -457,14 +427,14 @@ export function SessionsView() {
 
         case "O": {
           e.preventDefault();
-          const s = sessions[selectedIndex];
+          const s = ordered[selectedIndex];
           if (s?.isAlive) focusTerminal(s.pid);
           break;
         }
 
         case "X": {
           e.preventDefault();
-          const s = sessions[selectedIndex];
+          const s = ordered[selectedIndex];
           if (s?.isAlive) handleKill(s.pid);
           break;
         }
@@ -475,7 +445,7 @@ export function SessionsView() {
 
         case "G":
           e.preventDefault();
-          setSelectedIndex(sessions.length - 1);
+          setSelectedIndex(ordered.length - 1);
           break;
       }
     }
@@ -489,7 +459,7 @@ export function SessionsView() {
 
   return (
     <div className="h-full overflow-y-auto">
-      <div className="max-w-5xl mx-auto px-8 py-8">
+      <div className="max-w-[90rem] mx-auto px-8 py-8">
         <div className="mb-8">
           <h1 className="text-2xl font-mono font-medium tracking-tight">Sessions</h1>
           <p className="mt-1 text-sm text-text-muted">
@@ -504,7 +474,7 @@ export function SessionsView() {
         )}
 
         <div>
-          {sessions.map((session, index) => (
+          {orderedSessions.map((session, index) => (
             <SessionRow
               key={`${session.pid}-${session.sessionId}`}
               session={session}
@@ -514,6 +484,11 @@ export function SessionsView() {
               onToggleExpand={() => toggleExpand(index)}
               onRowRef={(el) => { rowRefs.current.set(session.pid, el); }}
               onInputRef={(el) => { inputRefs.current.set(session.pid, el); }}
+              index={index}
+              onDragStart={handleDragStart}
+              onDragOver={handleDragOver}
+              onDragEnd={handleDragEnd}
+              isDragOver={dragOverIndex === index}
             />
           ))}
         </div>

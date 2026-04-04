@@ -61,15 +61,18 @@ A visualization and editing dashboard for Claude Code configuration. Scans `~/.c
 - `src/components/SettingsPriorityChain.tsx` -- Settings priority chain visualization.
 
 ### Sessions feature (live session monitoring)
-- `src/lib/sessionScanner.ts` -- Scans `~/.claude/sessions/` PID files and reads JSONL logs from `~/.claude/projects/` to extract session metadata (title, git branch, recent messages, status).
-- `src/components/SessionsView.tsx` -- Client component: polls `/api/sessions` every 500ms, displays live/stale sessions with expandable conversation history and an inline prompt input. Vim-style keybindings for navigation (j/k move between sessions, l/h expand/collapse, i to enter insert mode in the editor, O to open terminal, X to kill, gg/G to jump to first/last). Markdown rendering for assistant messages via `react-markdown` + `remark-gfm`.
-- `src/components/VimEditor.tsx` -- CodeMirror 6 editor with `@replit/codemirror-vim` for vim keybindings. Styled to match MiClaw's design system. Supports Ctrl+Enter to submit and a `/name` command to rename sessions.
+- `src/lib/sessionScanner.ts` -- Scans `~/.claude/sessions/` PID files and reads JSONL logs from `~/.claude/projects/` to extract session metadata (title, git branch, status).
+- `src/components/SessionsView.tsx` -- Client component: polls `/api/sessions` every 500ms, displays live/stale sessions with expandable terminal mirror and VimEditor prompt. Vim-style keybindings for navigation (j/k move between sessions, l/h expand/collapse, i to focus editor, O to open terminal, X to kill, gg/G to jump to first/last).
+- `src/components/TerminalMirror.tsx` -- Read-only live terminal mirror. Polls `/api/sessions/screen` for terminal output, fetches color palette from `/api/sessions/colors`. Strips prompt chrome from bottom. Applies user message background highlighting and minimal colorization using the terminal's actual ANSI palette.
+- `src/components/VimEditor.tsx` -- CodeMirror 6 editor with `@replit/codemirror-vim` for vim keybindings. Styled to match MiClaw's design system. Supports Ctrl+Enter to submit.
 - `src/app/sessions/page.tsx` -- Sessions page (renders `SessionsView`).
 - `src/app/api/sessions/route.ts` -- GET returns all sessions; DELETE kills a session by PID.
 - `src/app/api/sessions/type/route.ts` -- POST types a message into a session's terminal via a compiled Swift helper (`helpers/type-to-terminal`). Uses `osascript` to select the correct Terminal tab, then the Swift helper sends keystrokes without stealing focus.
-- `src/app/api/sessions/rename/route.ts` -- POST renames a session by appending a `custom-title` entry to its JSONL log.
+- `src/app/api/sessions/screen/route.ts` -- POST returns terminal scrollback text for a given PID via AppleScript `history of tab`.
+- `src/app/api/sessions/colors/route.ts` -- POST returns the full Terminal.app ANSI color palette (bg, fg, bold, selection, 16 ANSI colors) by reading the plist via a Python helper.
 - `src/app/api/sessions/focus/route.ts` -- POST focuses a session's Terminal tab via AppleScript (finds the tab by TTY path).
-- `helpers/type-to-terminal.swift` -- Swift helper that types text into Terminal.app via the macOS Accessibility API. Must be compiled with `swiftc -O type-to-terminal.swift -o type-to-terminal`.
+- `helpers/type-to-terminal.swift` -- Swift helper that types text into Terminal.app via the macOS Accessibility API. Supports `--no-return` (send without Enter) and `--key <name>` (send special keys). Must be compiled with `swiftc -O type-to-terminal.swift -o type-to-terminal`.
+- `helpers/read-terminal-colors.py` -- Python script that reads Terminal.app's ANSI color palette from the preferences plist, decoding NSColor binary objects to hex values.
 
 ### Pages
 - `src/app/page.tsx` -- Overview page with sphere/tree visualization.
