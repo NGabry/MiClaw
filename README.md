@@ -8,7 +8,7 @@ MiClaw helps you maintain your lobsters. It scans your `~/.claude/` directory an
 
 It also allows editing of skills, slash commands, and rules directly in the app for easy centralized maintenance of all your claude files.
 
-MiClaw includes live session monitoring -- it scans running Claude Code processes, displays their status, conversation history, and git branch, and lets you type messages directly into a session's terminal from the dashboard.
+MiClaw includes live session monitoring -- it scans running Claude Code processes, displays their status, conversation history, and git branch, and lets you type messages directly into a session's terminal from the dashboard. The Sessions page uses vim-style keybindings and editor for composing messages. 
 
 **Optimized for macOS.** Session messaging uses a native Swift helper to type directly into Terminal.app without stealing focus. The core visualization and editing features work on any platform, but the full experience is designed for macOS.
 
@@ -72,4 +72,6 @@ The `prepublishOnly` script automatically builds the standalone server before pu
 - **Tailwind CSS v4** -- utility-first styling
 - **d3-hierarchy** -- circle-pack and tree layout math (React handles all DOM rendering)
 - **gray-matter** -- YAML frontmatter parsing
+- **CodeMirror 6** + **@replit/codemirror-vim** -- vim-enabled session editor
+- **react-markdown** + **remark-gfm** -- Markdown rendering for session messages
 - **lucide-react** -- icons

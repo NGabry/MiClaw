@@ -1,10 +1,13 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import type { ActiveSession } from "@/lib/sessionScanner";
-import { Skull, Clock, GitBranch, Terminal, Bot, ChevronDown, ChevronRight, Send, Loader2, ExternalLink } from "lucide-react";
+import { Skull, Clock, GitBranch, Terminal, Bot, ChevronDown, ChevronRight, ExternalLink } from "lucide-react";
+import { VimEditor } from "./VimEditor";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
-const POLL_INTERVAL = 5000;
+const POLL_INTERVAL = 500;
 
 function formatDuration(startedAt: number): string {
   const ms = Date.now() - startedAt;
@@ -46,18 +49,31 @@ async function focusTerminal(pid: number) {
   }
 }
 
-function SessionPrompt({ session }: { session: ActiveSession }) {
-  const [input, setInput] = useState("");
+function SessionPrompt({ session, onInputRef }: { session: ActiveSession; onInputRef?: (el: HTMLInputElement | null) => void }) {
   const [sending, setSending] = useState(false);
   const [permError, setPermError] = useState(false);
 
-  async function handleSend() {
-    if (!input.trim() || sending) return;
+  async function handleSubmit(text: string) {
+    if (!text.trim() || sending) return;
 
-    const prompt = input.trim();
-    setInput("");
     setSending(true);
     setPermError(false);
+
+    // Handle /name command
+    if (text.startsWith("/name ")) {
+      const newName = text.slice(6).trim();
+      if (newName) {
+        try {
+          await fetch("/api/sessions/rename", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ sessionId: session.sessionId, name: newName }),
+          });
+        } catch { /* silent */ }
+      }
+      setSending(false);
+      return;
+    }
 
     try {
       const res = await fetch("/api/sessions/type", {
@@ -67,24 +83,12 @@ function SessionPrompt({ session }: { session: ActiveSession }) {
           pid: session.pid,
           sessionId: session.sessionId,
           cwd: session.cwd,
-          message: prompt,
-          refocusApp: navigator.userAgent.includes("Chrome") ? "com.google.Chrome"
-            : navigator.userAgent.includes("Safari") ? "com.apple.Safari"
-            : navigator.userAgent.includes("Firefox") ? "org.mozilla.firefox"
-            : navigator.userAgent.includes("Arc") ? "company.thebrowser.Browser"
-            : null,
+          message: text,
         }),
       });
 
-      if (res.status === 403) {
-        setPermError(true);
-      }
-
-      // Refocus browser window after Terminal gets the keystroke
-      setTimeout(() => window.focus(), 100);
-    } catch {
-      // Silent fail
-    } finally {
+      if (res.status === 403) setPermError(true);
+    } catch { /* silent */ } finally {
       setSending(false);
     }
   }
@@ -96,48 +100,58 @@ function SessionPrompt({ session }: { session: ActiveSession }) {
           Grant accessibility access: System Settings &gt; Privacy &amp; Security &gt; Accessibility &gt; enable Terminal
         </p>
       )}
-      <div className="flex gap-2">
-      <input
-        type="text"
-        value={input}
-        onChange={(e) => setInput(e.target.value)}
-        onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
-        placeholder="Type into this session's terminal..."
+      <VimEditor
+        onSubmit={handleSubmit}
+        placeholder="Type into this session... (/name to rename) -- vim enabled"
         disabled={sending || !session.isAlive}
-        className="flex-1 bg-surface-raised border border-border rounded-sm px-3 py-2 text-sm font-mono text-text
-          focus:border-accent focus:outline-none disabled:opacity-50
-          placeholder:text-text-dim"
+        inputRef={(el) => onInputRef?.(el as HTMLInputElement | null)}
       />
-      <button
-        onClick={handleSend}
-        disabled={sending || !input.trim() || !session.isAlive}
-        className="px-3 py-2 bg-accent/15 text-accent border border-accent/30 rounded-sm
-          hover:bg-accent/25 transition-colors disabled:opacity-30
-          flex items-center gap-1.5 font-mono text-sm"
-      >
-        {sending ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
-      </button>
-      </div>
     </div>
   );
 }
 
 // --- Session row ---
 
-function SessionRow({ session, onKill }: { session: ActiveSession; onKill: () => void }) {
-  const [expanded, setExpanded] = useState(false);
+function SessionRow({
+  session,
+  onKill,
+  isVimSelected,
+  expanded,
+  onToggleExpand,
+  onRowRef,
+  onInputRef,
+}: {
+  session: ActiveSession;
+  onKill: () => void;
+  isVimSelected: boolean;
+  expanded: boolean;
+  onToggleExpand: () => void;
+  onRowRef: (el: HTMLDivElement | null) => void;
+  onInputRef: (el: HTMLInputElement | null) => void;
+}) {
   const [hovered, setHovered] = useState(false);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // Auto-scroll to bottom when messages update or session is expanded
+  useEffect(() => {
+    if (expanded) {
+      setTimeout(() => {
+        messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+      }, 50);
+    }
+  }, [session.recentMessages.length, expanded]);
 
   return (
     <div
-      className={`border-b border-border ${!session.isAlive ? "opacity-30" : ""}`}
+      ref={onRowRef}
+      className={`border-b border-border ${!session.isAlive ? "opacity-30" : ""} ${isVimSelected ? "border-l-2 border-l-accent bg-surface-hover/30" : ""}`}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
       {/* Main row */}
       <div
         className="flex items-center gap-4 py-4 px-2 cursor-pointer hover:bg-surface-hover/50 transition-colors"
-        onClick={() => setExpanded(!expanded)}
+        onClick={onToggleExpand}
       >
         <span className="text-text-dim shrink-0">
           {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
@@ -222,17 +236,24 @@ function SessionRow({ session, onKill }: { session: ActiveSession; onKill: () =>
                     <span className="text-[10px] font-mono text-text-dim w-12 shrink-0">
                       {formatTime(msg.timestamp)}
                     </span>
-                    <p className="text-xs font-mono text-text-muted whitespace-pre-wrap break-all flex-1">
-                      {msg.text}
-                    </p>
+                    {msg.type === "user" ? (
+                      <p className="text-xs font-mono text-text-muted whitespace-pre-wrap break-all flex-1">
+                        {msg.text}
+                      </p>
+                    ) : (
+                      <div className="text-xs font-mono text-text-muted flex-1 prose prose-invert prose-xs max-w-none">
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.text}</ReactMarkdown>
+                      </div>
+                    )}
                   </div>
                 ))}
+                <div ref={messagesEndRef} />
               </div>
             </div>
           )}
 
           {/* Prompt input */}
-          {session.isAlive && <SessionPrompt session={session} />}
+          {session.isAlive && <SessionPrompt session={session} onInputRef={onInputRef} />}
         </div>
       )}
     </div>
@@ -244,6 +265,12 @@ function SessionRow({ session, onKill }: { session: ActiveSession; onKill: () =>
 export function SessionsView() {
   const [sessions, setSessions] = useState<ActiveSession[]>([]);
   const [loading, setLoading] = useState(true);
+  const [selectedIndex, setSelectedIndex] = useState(0);
+  const [expandedSet, setExpandedSet] = useState<Set<string>>(new Set());
+
+  const rowRefs = useRef<Map<number, HTMLDivElement | null>>(new Map());
+  const inputRefs = useRef<Map<number, HTMLInputElement | null>>(new Map());
+  const pendingGRef = useRef(false);
 
   const fetchSessions = useCallback(async () => {
     try {
@@ -262,6 +289,38 @@ export function SessionsView() {
     return () => clearInterval(interval);
   }, [fetchSessions]);
 
+  // Clamp selectedIndex when sessions list changes
+  useEffect(() => {
+    if (sessions.length > 0 && selectedIndex >= sessions.length) {
+      setSelectedIndex(sessions.length - 1);
+    }
+  }, [sessions.length, selectedIndex]);
+
+  // Auto-scroll selected row into view
+  useEffect(() => {
+    if (sessions.length === 0) return;
+    const session = sessions[selectedIndex];
+    if (!session) return;
+    const el = rowRefs.current.get(session.pid);
+    if (el) el.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }, [selectedIndex, sessions]);
+
+  function sessionKey(s: ActiveSession): string {
+    return `${s.pid}-${s.sessionId}`;
+  }
+
+  function toggleExpand(index: number) {
+    const s = sessions[index];
+    if (!s) return;
+    const key = sessionKey(s);
+    setExpandedSet((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
+
   async function handleKill(pid: number) {
     if (!window.confirm(`Kill session with PID ${pid}?`)) return;
     try {
@@ -275,6 +334,117 @@ export function SessionsView() {
       alert("Failed to kill session");
     }
   }
+
+  // Vim-style keyboard navigation
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      const activeEl = document.activeElement;
+      const isInputFocused = activeEl instanceof HTMLInputElement
+        || activeEl instanceof HTMLTextAreaElement
+        || activeEl?.closest(".cm-editor") !== null;
+
+      // When input is focused (insert mode), only Esc returns to normal mode
+      if (isInputFocused) {
+        if (e.key === "Escape") {
+          e.preventDefault();
+          (activeEl as HTMLElement).blur();
+        }
+        return;
+      }
+
+      if (sessions.length === 0) return;
+
+      // Handle gg sequence
+      if (pendingGRef.current) {
+        pendingGRef.current = false;
+        if (e.key === "g") {
+          e.preventDefault();
+          setSelectedIndex(0);
+          return;
+        }
+        // Not a second g, fall through
+      }
+
+      switch (e.key) {
+        case "j":
+        case "ArrowDown":
+          e.preventDefault();
+          setSelectedIndex((prev) => Math.min(prev + 1, sessions.length - 1));
+          break;
+
+        case "k":
+        case "ArrowUp":
+          e.preventDefault();
+          setSelectedIndex((prev) => Math.max(prev - 1, 0));
+          break;
+
+        case "l":
+          e.preventDefault();
+          toggleExpand(selectedIndex);
+          break;
+
+        case "Escape":
+        case "h": {
+          e.preventDefault();
+          const s = sessions[selectedIndex];
+          if (s) {
+            const key = sessionKey(s);
+            setExpandedSet((prev) => {
+              const next = new Set(prev);
+              next.delete(key);
+              return next;
+            });
+          }
+          break;
+        }
+
+        case "i":
+        case "/": {
+          e.preventDefault();
+          const s = sessions[selectedIndex];
+          if (!s) break;
+          // Ensure expanded
+          const key = sessionKey(s);
+          if (!expandedSet.has(key)) {
+            setExpandedSet((prev) => new Set(prev).add(key));
+          }
+          // Focus input after render
+          setTimeout(() => {
+            const input = inputRefs.current.get(s.pid);
+            if (input) input.focus();
+          }, 50);
+          break;
+        }
+
+        case "O": {
+          e.preventDefault();
+          const s = sessions[selectedIndex];
+          if (s?.isAlive) focusTerminal(s.pid);
+          break;
+        }
+
+        case "X": {
+          e.preventDefault();
+          const s = sessions[selectedIndex];
+          if (s?.isAlive) handleKill(s.pid);
+          break;
+        }
+
+        case "g":
+          pendingGRef.current = true;
+          break;
+
+        case "G":
+          e.preventDefault();
+          setSelectedIndex(sessions.length - 1);
+          break;
+      }
+    }
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessions, selectedIndex, expandedSet]);
 
   const aliveCount = sessions.filter((s) => s.isAlive).length;
 
@@ -295,14 +465,23 @@ export function SessionsView() {
         )}
 
         <div>
-          {sessions.map((session) => (
+          {sessions.map((session, index) => (
             <SessionRow
               key={`${session.pid}-${session.sessionId}`}
               session={session}
               onKill={() => handleKill(session.pid)}
+              isVimSelected={index === selectedIndex}
+              expanded={expandedSet.has(sessionKey(session))}
+              onToggleExpand={() => toggleExpand(index)}
+              onRowRef={(el) => { rowRefs.current.set(session.pid, el); }}
+              onInputRef={(el) => { inputRefs.current.set(session.pid, el); }}
             />
           ))}
         </div>
+
+        <p className="text-[10px] font-mono text-text-dim text-center mt-4">
+          j/k navigate -- l/h expand/collapse -- i insert -- O terminal -- X kill
+        </p>
       </div>
     </div>
   );

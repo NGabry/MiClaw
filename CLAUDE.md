@@ -10,6 +10,8 @@ A visualization and editing dashboard for Claude Code configuration. Scans `~/.c
 - **Tailwind CSS v4** (uses `@theme inline` blocks, NOT tailwind.config.ts)
 - **TypeScript** (strict mode)
 - **d3-hierarchy** for circle-pack and tree layout math (React renders the DOM, NOT D3)
+- **CodeMirror 6** (`@codemirror/view`, `@codemirror/state`, `@codemirror/lang-markdown`) + **@replit/codemirror-vim** for the vim-enabled session editor
+- **react-markdown** + **remark-gfm** for rendering assistant messages as Markdown
 - **lucide-react** for icons
 
 ## Architecture
@@ -60,10 +62,12 @@ A visualization and editing dashboard for Claude Code configuration. Scans `~/.c
 
 ### Sessions feature (live session monitoring)
 - `src/lib/sessionScanner.ts` -- Scans `~/.claude/sessions/` PID files and reads JSONL logs from `~/.claude/projects/` to extract session metadata (title, git branch, recent messages, status).
-- `src/components/SessionsView.tsx` -- Client component: polls `/api/sessions` every 5s, displays live/stale sessions with expandable conversation history and an inline prompt input.
+- `src/components/SessionsView.tsx` -- Client component: polls `/api/sessions` every 500ms, displays live/stale sessions with expandable conversation history and an inline prompt input. Vim-style keybindings for navigation (j/k move between sessions, l/h expand/collapse, i to enter insert mode in the editor, O to open terminal, X to kill, gg/G to jump to first/last). Markdown rendering for assistant messages via `react-markdown` + `remark-gfm`.
+- `src/components/VimEditor.tsx` -- CodeMirror 6 editor with `@replit/codemirror-vim` for vim keybindings. Styled to match MiClaw's design system. Supports Ctrl+Enter to submit and a `/name` command to rename sessions.
 - `src/app/sessions/page.tsx` -- Sessions page (renders `SessionsView`).
 - `src/app/api/sessions/route.ts` -- GET returns all sessions; DELETE kills a session by PID.
 - `src/app/api/sessions/type/route.ts` -- POST types a message into a session's terminal via a compiled Swift helper (`helpers/type-to-terminal`). Uses `osascript` to select the correct Terminal tab, then the Swift helper sends keystrokes without stealing focus.
+- `src/app/api/sessions/rename/route.ts` -- POST renames a session by appending a `custom-title` entry to its JSONL log.
 - `src/app/api/sessions/focus/route.ts` -- POST focuses a session's Terminal tab via AppleScript (finds the tab by TTY path).
 - `helpers/type-to-terminal.swift` -- Swift helper that types text into Terminal.app via the macOS Accessibility API. Must be compiled with `swiftc -O type-to-terminal.swift -o type-to-terminal`.
 
