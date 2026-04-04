@@ -307,7 +307,14 @@ export function SessionsView() {
   const fetchSessions = useCallback(async () => {
     try {
       const res = await fetch("/api/sessions");
-      if (res.ok) setSessions(await res.json());
+      if (res.ok) {
+        const newData = await res.json();
+        // Only update state if data actually changed to prevent scroll jitter
+        setSessions((prev) => {
+          if (JSON.stringify(prev) === JSON.stringify(newData)) return prev;
+          return newData;
+        });
+      }
     } catch {
       // Fetch failed
     } finally {

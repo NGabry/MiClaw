@@ -1,22 +1,8 @@
 import { execSync, execFileSync } from "child_process";
-import { existsSync } from "fs";
-import { homedir } from "os";
-import path from "path";
+import { writeFileSync, unlinkSync } from "fs";
+import { tmpdir } from "os";
 
 export const dynamic = "force-dynamic";
-
-// Resolve helper path at module level
-const HELPER_PATHS = [
-  path.join(process.cwd(), "helpers", "type-to-terminal"),
-  path.join(homedir(), "Desktop", "MiClaw", "helpers", "type-to-terminal"),
-];
-
-function findHelper(): string | null {
-  for (const p of HELPER_PATHS) {
-    if (existsSync(p)) return p;
-  }
-  return null;
-}
 
 export async function POST(request: Request) {
   const { pid, message } = await request.json();
@@ -25,39 +11,51 @@ export async function POST(request: Request) {
     return new Response(JSON.stringify({ error: "pid and message required" }), { status: 400 });
   }
 
-  const helperPath = findHelper();
-  if (!helperPath) {
-    return new Response(JSON.stringify({ error: "Swift helper not found. Run: cd helpers && swiftc -O type-to-terminal.swift -o type-to-terminal" }), { status: 500 });
-  }
-
   try {
-    // Find Terminal.app's PID
-    const terminalPID = execSync("ps aux | grep '[T]erminal.app' | awk '{print $2}' | head -1", { encoding: "utf-8" }).trim();
-    if (!terminalPID) {
-      return new Response(JSON.stringify({ error: "Terminal.app not running" }), { status: 404 });
-    }
-
-    // Find the TTY for the Claude process and select its tab
+    // Find the TTY for the Claude process
     const tty = execSync(`ps -p ${pid} -o tty=`, { encoding: "utf-8" }).trim();
-    if (tty) {
-      const ttyPath = `/dev/${tty}`;
-      try {
-        execSync(
-          `osascript -e 'tell application "Terminal" to repeat with w in windows\nrepeat with t in tabs of w\nif tty of t is "${ttyPath}" then\nset selected tab of w to t\nend if\nend repeat\nend repeat'`,
-          { encoding: "utf-8", timeout: 3000, stdio: "ignore" }
-        );
-      } catch {
-        // Tab selection failed, continue anyway
-      }
+    if (!tty) {
+      return new Response(JSON.stringify({ error: "Could not find TTY" }), { status: 404 });
     }
 
-    // Type via Swift helper (no focus steal)
-    const result = execFileSync(helperPath, [terminalPID, message], {
-      encoding: "utf-8",
-      timeout: 10000,
-    }).trim();
+    const ttyPath = `/dev/${tty}`;
 
-    return new Response(JSON.stringify({ success: true, result }));
+    // Escape message for AppleScript string
+    const escaped = message
+      .replace(/\\/g, "\\\\")
+      .replace(/"/g, '\\"');
+
+    // Use "do script" to send text directly to the specific tab
+    // This targets the tab by TTY -- no window reindexing, no focus issues
+    const scriptPath = `${tmpdir()}/miclaw-type-${Date.now()}.scpt`;
+    writeFileSync(scriptPath, [
+      'tell application "Terminal"',
+      "  repeat with w in windows",
+      "    repeat with t in tabs of w",
+      `      if tty of t is "${ttyPath}" then`,
+      `        do script "${escaped}" in t`,
+      '        return "ok"',
+      "      end if",
+      "    end repeat",
+      "  end repeat",
+      '  return "not_found"',
+      "end tell",
+    ].join("\n"));
+
+    try {
+      const result = execFileSync("osascript", [scriptPath], {
+        encoding: "utf-8",
+        timeout: 5000,
+      }).trim();
+
+      if (result === "not_found") {
+        return new Response(JSON.stringify({ error: `Tab not found for ${ttyPath}` }), { status: 404 });
+      }
+
+      return new Response(JSON.stringify({ success: true }));
+    } finally {
+      try { unlinkSync(scriptPath); } catch { /* ignore */ }
+    }
   } catch (err) {
     return new Response(JSON.stringify({ error: String(err) }), { status: 500 });
   }

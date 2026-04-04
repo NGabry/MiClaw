@@ -1,6 +1,6 @@
 {
   "name": "miclaw-app",
-  "version": "0.9.1",
+  "version": "0.9.2",
   "description": "Maintain your lobsters",
   "bin": {
     "miclaw": "./bin/miclaw.mjs"
