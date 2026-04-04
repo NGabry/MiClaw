@@ -5,7 +5,7 @@ import { CLAUDE_DIR, PROJECTS_DIR } from "./constants";
 const SESSIONS_DIR = path.join(CLAUDE_DIR, "sessions");
 
 // How much of the JSONL tail to read for metadata
-const TAIL_READ_SIZE = 1024 * 1024; // 1MB
+const TAIL_READ_SIZE = 2 * 1024 * 1024; // 2MB
 
 export interface ActiveSession {
   pid: number;
@@ -21,6 +21,8 @@ export interface ActiveSession {
   logPath?: string;
   agent?: string;
   isAlive: boolean;
+  maybeWaitingForInput: boolean;
+  lastTranscriptUpdate?: number;
   // Derived from JSONL
   title?: string;
   gitBranch?: string;
@@ -29,8 +31,9 @@ export interface ActiveSession {
 }
 
 export interface SessionMessage {
-  type: "user" | "assistant" | "system";
+  type: "user" | "assistant" | "system" | "tool_use" | "tool_result";
   text: string;
+  toolName?: string;
   timestamp: string;
 }
 
@@ -77,18 +80,51 @@ function extractRecentMessages(tail: string, limit: number = 10): SessionMessage
           });
         }
       } else if (entry.type === "assistant" && entry.message?.content) {
-        const text = Array.isArray(entry.message.content)
-          ? entry.message.content
-              .filter((c: { type: string }) => c.type === "text")
-              .map((c: { text: string }) => c.text)
-              .join(" ")
-          : "";
-        if (text) {
+        const blocks = Array.isArray(entry.message.content) ? entry.message.content : [];
+
+        // Extract text blocks
+        const textParts = blocks
+          .filter((c: { type: string }) => c.type === "text")
+          .map((c: { text: string }) => c.text);
+        if (textParts.length > 0) {
           messages.unshift({
             type: "assistant",
-            text,
+            text: textParts.join(" "),
             timestamp: entry.timestamp ?? "",
           });
+        }
+
+        // Extract tool_use blocks
+        for (const block of blocks) {
+          if (block.type === "tool_use") {
+            const inputSummary = block.input
+              ? (typeof block.input === "object"
+                ? (block.input.command ?? block.input.file_path ?? block.input.pattern ?? JSON.stringify(block.input).substring(0, 100))
+                : String(block.input).substring(0, 100))
+              : "";
+            messages.unshift({
+              type: "tool_use",
+              text: inputSummary,
+              toolName: block.name ?? "tool",
+              timestamp: entry.timestamp ?? "",
+            });
+          }
+        }
+      } else if (entry.type === "user" && entry.message?.content && Array.isArray(entry.message.content)) {
+        // Tool results
+        for (const block of entry.message.content) {
+          if (block.type === "tool_result") {
+            const resultText = Array.isArray(block.content)
+              ? block.content.filter((c: { type: string }) => c.type === "text").map((c: { text: string }) => c.text).join(" ").substring(0, 200)
+              : typeof block.content === "string" ? block.content.substring(0, 200) : "";
+            if (resultText) {
+              messages.unshift({
+                type: "tool_result",
+                text: resultText,
+                timestamp: entry.timestamp ?? "",
+              });
+            }
+          }
         }
       }
     } catch {
@@ -104,6 +140,8 @@ async function readJsonlTail(sessionId: string): Promise<{
   gitBranch?: string;
   lastPrompt?: string;
   recentMessages: SessionMessage[];
+  lastModified?: number;
+  lastEntryIsToolUse: boolean;
 }> {
   // Find the JSONL file across all project directories
   try {
@@ -124,9 +162,25 @@ async function readJsonlTail(sessionId: string): Promise<{
           const title = extractField(tail, "customTitle") ?? extractField(tail, "aiTitle");
           const gitBranch = extractField(tail, "gitBranch");
           const lastPrompt = extractField(tail, "lastPrompt");
-          const recentMessages = extractRecentMessages(tail, 50);
+          const recentMessages = extractRecentMessages(tail, 200);
 
-          return { title, gitBranch, lastPrompt, recentMessages };
+          // Check if the last meaningful entry is an assistant with tool_use
+          // (meaning Claude sent a tool request but we haven't seen the result yet)
+          const lines = tail.split("\n").filter(Boolean);
+          let lastEntryIsToolUse = false;
+          for (let i = lines.length - 1; i >= 0; i--) {
+            try {
+              const entry = JSON.parse(lines[i]);
+              if (entry.type === "assistant" && entry.message?.content) {
+                const blocks = Array.isArray(entry.message.content) ? entry.message.content : [];
+                lastEntryIsToolUse = blocks.some((b: { type: string }) => b.type === "tool_use");
+                break;
+              }
+              if (entry.type === "user") break; // User already responded
+            } catch { /* skip */ }
+          }
+
+          return { title, gitBranch, lastPrompt, recentMessages, lastModified: stat.mtimeMs, lastEntryIsToolUse };
         } finally {
           await fd.close();
         }
@@ -138,7 +192,7 @@ async function readJsonlTail(sessionId: string): Promise<{
     // PROJECTS_DIR doesn't exist
   }
 
-  return { recentMessages: [] };
+  return { recentMessages: [], lastEntryIsToolUse: false };
 }
 
 export async function scanActiveSessions(): Promise<ActiveSession[]> {
@@ -174,6 +228,8 @@ export async function scanActiveSessions(): Promise<ActiveSession[]> {
             logPath: data.logPath,
             agent: data.agent,
             isAlive,
+            maybeWaitingForInput: isAlive && jsonlData.lastEntryIsToolUse,
+            lastTranscriptUpdate: jsonlData.lastModified,
             title: jsonlData.title,
             gitBranch: jsonlData.gitBranch,
             lastPrompt: jsonlData.lastPrompt,

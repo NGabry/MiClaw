@@ -28,10 +28,10 @@ function formatTime(timestamp: string): string {
   }
 }
 
-function StatusDot({ status, isAlive }: { status?: string; isAlive: boolean }) {
+function StatusDot({ status, isAlive, maybeWaiting }: { status?: string; isAlive: boolean; maybeWaiting?: boolean }) {
   if (!isAlive) return <span className="w-2.5 h-2.5 rounded-full bg-text-dim inline-block shrink-0" title="Dead" />;
+  if (status === "waiting" || maybeWaiting) return <span className="w-2.5 h-2.5 rounded-full bg-yellow-500 animate-pulse inline-block shrink-0" title="Waiting for input" />;
   if (status === "busy") return <span className="w-2.5 h-2.5 rounded-full bg-accent animate-pulse inline-block shrink-0" title="Busy" />;
-  if (status === "waiting") return <span className="w-2.5 h-2.5 rounded-full bg-yellow-500 animate-pulse inline-block shrink-0" title="Waiting" />;
   return <span className="w-2.5 h-2.5 rounded-full bg-green-500 inline-block shrink-0" title="Idle" />;
 }
 
@@ -157,7 +157,7 @@ function SessionRow({
           {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
         </span>
 
-        <StatusDot status={session.status} isAlive={session.isAlive} />
+        <StatusDot status={session.status} isAlive={session.isAlive} maybeWaiting={session.maybeWaitingForInput} />
 
         <div className="min-w-0 flex-1">
           <p className="font-mono text-sm font-medium text-text truncate">
@@ -221,32 +221,64 @@ function SessionRow({
               waiting: {session.waitingFor}
             </p>
           )}
+          {session.maybeWaitingForInput && session.isAlive && !session.waitingFor && (
+            <div className="flex items-center gap-2 mb-2 py-1.5 px-3 rounded-sm bg-yellow-500/10 border border-yellow-500/20">
+              <span className="w-2 h-2 rounded-full bg-yellow-500 animate-pulse shrink-0" />
+              <p className="text-[11px] font-mono text-yellow-500/80">
+                session may need input -- press O to jump to terminal
+              </p>
+            </div>
+          )}
 
           {/* Recent messages */}
           {session.recentMessages.length > 0 && (
             <div className="mb-3">
               <p className="text-[10px] font-mono text-text-dim mb-1.5"># conversation</p>
               <div className="max-h-96 overflow-y-auto space-y-1.5 border border-border rounded-sm p-3">
-                {session.recentMessages.map((msg, i) => (
-                  <div key={i} className="flex gap-3">
-                    <span className={`text-[10px] font-mono w-12 shrink-0 text-right
-                      ${msg.type === "user" ? "text-accent" : "text-text-dim"}`}>
-                      {msg.type === "assistant" ? "claude" : msg.type}
-                    </span>
-                    <span className="text-[10px] font-mono text-text-dim w-12 shrink-0">
-                      {formatTime(msg.timestamp)}
-                    </span>
-                    {msg.type === "user" ? (
-                      <p className="text-xs font-mono text-text-muted whitespace-pre-wrap break-all flex-1">
-                        {msg.text}
-                      </p>
-                    ) : (
-                      <div className="text-xs font-mono text-text-muted flex-1 prose prose-invert prose-xs max-w-none">
-                        <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.text}</ReactMarkdown>
-                      </div>
-                    )}
-                  </div>
-                ))}
+                {session.recentMessages.map((msg, i) => {
+                  const labelMap: Record<string, string> = {
+                    user: "user",
+                    assistant: "claude",
+                    system: "system",
+                    tool_use: msg.toolName ?? "tool",
+                    tool_result: "result",
+                  };
+                  const colorMap: Record<string, string> = {
+                    user: "text-accent",
+                    assistant: "text-text-dim",
+                    system: "text-text-dim",
+                    tool_use: "text-yellow-500/80",
+                    tool_result: "text-text-dim",
+                  };
+
+                  return (
+                    <div key={i} className={`flex gap-3 ${msg.type === "tool_use" || msg.type === "tool_result" ? "opacity-60" : ""}`}>
+                      <span className={`text-[10px] font-mono w-14 shrink-0 text-right ${colorMap[msg.type] ?? "text-text-dim"}`}>
+                        {labelMap[msg.type] ?? msg.type}
+                      </span>
+                      <span className="text-[10px] font-mono text-text-dim w-12 shrink-0">
+                        {formatTime(msg.timestamp)}
+                      </span>
+                      {msg.type === "tool_use" ? (
+                        <p className="text-[11px] font-mono text-yellow-500/60 whitespace-pre-wrap break-all flex-1">
+                          {msg.text}
+                        </p>
+                      ) : msg.type === "tool_result" ? (
+                        <p className="text-[10px] font-mono text-text-dim whitespace-pre-wrap break-all flex-1 truncate">
+                          {msg.text}
+                        </p>
+                      ) : msg.type === "user" ? (
+                        <p className="text-xs font-mono text-text-muted whitespace-pre-wrap break-all flex-1">
+                          {msg.text}
+                        </p>
+                      ) : (
+                        <div className="text-xs font-mono text-text-muted flex-1 prose prose-invert prose-xs max-w-none">
+                          <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.text}</ReactMarkdown>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
                 <div ref={messagesEndRef} />
               </div>
             </div>
