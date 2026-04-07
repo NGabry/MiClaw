@@ -43,6 +43,16 @@ function fetchPalette(): Promise<TermPalette | null> {
   return palettePromise;
 }
 
+/** Convert hex color to rgba with given alpha */
+function hexToRgba(hex: string, alpha: number): string {
+  const h = hex.replace("#", "");
+  const r = parseInt(h.substring(0, 2), 16);
+  const g = parseInt(h.substring(2, 4), 16);
+  const b = parseInt(h.substring(4, 6), 16);
+  if (isNaN(r) || isNaN(g) || isNaN(b)) return hex;
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
 function buildTheme(palette: TermPalette | null): import("@xterm/xterm").ITheme {
   const fallback = {
     background: "#2b2a27",
@@ -67,8 +77,10 @@ function buildTheme(palette: TermPalette | null): import("@xterm/xterm").ITheme 
 
   const p = palette ?? fallback;
 
+  const bg = p.background ?? fallback.background;
+
   return {
-    background: p.background ?? fallback.background,
+    background: hexToRgba(bg, 0.88),
     foreground: p.foreground ?? fallback.foreground,
     cursor: "#d97757",
     selectionBackground: "rgba(217, 119, 87, 0.3)",
@@ -241,6 +253,7 @@ export function MiclawTerminal({ sessionId, cwd, resumeId, name }: MiclawTermina
         const fitAddon = new FitAddon();
         const terminal = new Terminal({
           allowProposedApi: true,
+          allowTransparency: true,
           cursorBlink: true,
           cursorStyle: "block",
           fontSize: 13,
