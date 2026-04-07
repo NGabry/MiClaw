@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 
-const POLL_INTERVAL = 300;
+const POLL_INTERVAL = 1000;
 const MAX_LINES = 300;
 
 /**
@@ -32,11 +32,6 @@ interface TermPalette {
   brightWhite: string;
 }
 
-/**
- * Minimal colorization -- only highlight things we're certain about.
- * Everything else inherits the terminal's foreground color.
- * We can't get ANSI codes from Terminal.app, so less guessing = less confusion.
- */
 interface LineStyle {
   text: string;
   color?: string;
@@ -46,7 +41,7 @@ interface LineStyle {
 
 /**
  * Tag each line with a "block" type so we can apply background colors
- * to user message regions (❯ prompt through next agent marker).
+ * to user message regions (prompt through next agent marker).
  */
 function classifyLines(lines: string[], p: TermPalette | null): LineStyle[] {
   const result: LineStyle[] = [];
@@ -56,42 +51,35 @@ function classifyLines(lines: string[], p: TermPalette | null): LineStyle[] {
   for (const line of lines) {
     const trimmed = line.trimStart();
 
-    // User input prompt -- starts a user block
-    if (trimmed.startsWith("❯ ") || trimmed.startsWith("> ")) {
+    if (trimmed.startsWith("\u276F ") || trimmed.startsWith("> ")) {
       inUserBlock = true;
       result.push({ text: line, color: p?.white, bg: userBg });
       continue;
     }
 
-    // Agent markers, separators, spinners end the user block
-    if (trimmed.startsWith("⏺ ") || trimmed.startsWith("● ") || /^[─━]{3,}/.test(trimmed) || /^[✽⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏⠐⠂⠁]/.test(trimmed)) {
+    if (trimmed.startsWith("\u23FA ") || trimmed.startsWith("\u25CF ") || /^[\u2500\u2501]{3,}/.test(trimmed) || /^[\u273D\u280B\u2819\u2839\u2838\u283C\u2834\u2826\u2827\u2807\u280F\u2810\u2802\u2801]/.test(trimmed)) {
       inUserBlock = false;
     }
 
-    // Empty line ends user block too
     if (inUserBlock && trimmed === "") {
       inUserBlock = false;
     }
 
-    // Separator lines -- dim
-    if (/^[─━]{3,}/.test(trimmed)) {
+    if (/^[\u2500\u2501]{3,}/.test(trimmed)) {
       result.push({ text: line, dim: true });
       continue;
     }
 
-    // Thinking/status spinners -- claude color
-    if (/^[✽⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏⠐⠂⠁]/.test(trimmed) || /Saut[ée]ing|Brewing|Brewed|Frosting|Compiled|Cogitat|Waddling|Worked for/.test(trimmed)) {
+    if (/^[\u273D\u280B\u2819\u2839\u2838\u283C\u2834\u2826\u2827\u2807\u280F\u2810\u2802\u2801]/.test(trimmed) || /Saut[e\u00e9]ing|Brewing|Brewed|Frosting|Compiled|Cogitat|Waddling|Worked for/.test(trimmed)) {
       result.push({ text: line, color: p?.brightRed });
       continue;
     }
 
-    // Lines inside user block get the background
     if (inUserBlock) {
       result.push({ text: line, bg: userBg });
       continue;
     }
 
-    // Default
     result.push({ text: line });
   }
 
@@ -116,7 +104,7 @@ function stripPromptArea(lines: string[]): string[] {
   return lines.slice(0, end);
 }
 
-export function TerminalMirror({ pid }: { pid: number }) {
+export function TerminalMirror({ pid, fillHeight }: { pid: number; fillHeight?: boolean }) {
   const [screen, setScreen] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
   const [palette, setPalette] = useState<TermPalette | null>(null);
@@ -204,7 +192,9 @@ export function TerminalMirror({ pid }: { pid: number }) {
       onScroll={handleScroll}
       className="overflow-y-auto overflow-x-auto font-mono text-[12px] leading-[1.5] rounded-sm border border-border"
       style={{
-        maxHeight: "350px",
+        ...(fillHeight
+          ? { height: "100%", minHeight: 0 }
+          : { maxHeight: "350px" }),
         backgroundColor: palette?.background ?? "#1d1d1d",
         color: palette?.foreground ?? "#fdcd9f",
       }}

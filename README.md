@@ -8,21 +8,45 @@ MiClaw helps you maintain your lobsters. It scans your `~/.claude/` directory an
 
 It also allows editing of skills, slash commands, and rules directly in the app for easy centralized maintenance of all your claude files.
 
-MiClaw includes live session monitoring -- it scans running Claude Code processes, displays their status, conversation history, and git branch, and lets you type messages directly into a session's terminal from the dashboard. The Sessions page uses vim-style keybindings and editor for composing messages. 
+MiClaw includes a session management dashboard with tabbed terminal views:
 
-**Optimized for macOS.** Session messaging uses a native Swift helper to type directly into Terminal.app without stealing focus. The core visualization and editing features work on any platform, but the full experience is designed for macOS.
+- **MiClaw sessions** run Claude Code in embedded interactive terminals (xterm.js) powered by a local PTY server. These survive page refreshes, support full two-way interaction, and can resume crashed sessions automatically.
+- **Detected sessions** are Claude Code instances running in Terminal.app. MiClaw shows a read-only terminal mirror of their output. You can **Adopt** a detected session to convert it into a fully managed MiClaw session.
+
+### Session status indicators
+
+- **Green** -- session is alive and idle
+- **Yellow (pulsing)** -- session needs your input (tool approval, yes/no prompt)
+- **Orange (pulsing)** -- session is actively working (producing output)
+- **Gray** -- session has ended or the process died
+
+### Keyboard navigation
+
+Press **Shift+Space** to enter command mode (works even when a terminal has focus):
+
+| Key | Action |
+|-----|--------|
+| `1-9` | Jump to tab by position |
+| `j/k` | Cycle to next/previous tab |
+| `n` | Create a new MiClaw session |
+| `a` | Adopt a detected session |
+| `X` | Kill the active session |
+| `O` | Open detected session in Terminal.app |
+| `Esc` | Exit command mode |
+
+When no terminal is focused, these keys work directly without command mode.
+
+**Primarily developed on macOS.** The embedded terminal sessions feature requires macOS (uses a local PTY server). The core visualization and editing features work on any platform.
 
 ## Quick Start
 
-Requires macOS and Node.js v20+.
+Requires Node.js v20+.
 
 ```bash
 npx miclaw-app
 ```
 
 MiClaw will start a local server, find an open port, and open your browser. Press Ctrl+C to stop.
-
-Requires Node.js v20+.
 
 
 ## Development
@@ -72,6 +96,5 @@ The `prepublishOnly` script automatically builds the standalone server before pu
 - **Tailwind CSS v4** -- utility-first styling
 - **d3-hierarchy** -- circle-pack and tree layout math (React handles all DOM rendering)
 - **gray-matter** -- YAML frontmatter parsing
-- **CodeMirror 6** + **@replit/codemirror-vim** -- vim-enabled session editor
 - **react-markdown** + **remark-gfm** -- Markdown rendering for session messages
 - **lucide-react** -- icons

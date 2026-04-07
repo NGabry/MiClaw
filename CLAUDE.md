@@ -10,7 +10,6 @@ A visualization and editing dashboard for Claude Code configuration. Scans `~/.c
 - **Tailwind CSS v4** (uses `@theme inline` blocks, NOT tailwind.config.ts)
 - **TypeScript** (strict mode)
 - **d3-hierarchy** for circle-pack and tree layout math (React renders the DOM, NOT D3)
-- **CodeMirror 6** (`@codemirror/view`, `@codemirror/state`, `@codemirror/lang-markdown`) + **@replit/codemirror-vim** for the vim-enabled session editor
 - **react-markdown** + **remark-gfm** for rendering assistant messages as Markdown
 - **lucide-react** for icons
 
@@ -60,19 +59,21 @@ A visualization and editing dashboard for Claude Code configuration. Scans `~/.c
 - `src/components/OutputStyleCard.tsx` -- Output style configuration card.
 - `src/components/SettingsPriorityChain.tsx` -- Settings priority chain visualization.
 
-### Sessions feature (live session monitoring)
-- `src/lib/sessionScanner.ts` -- Scans `~/.claude/sessions/` PID files and reads JSONL logs from `~/.claude/projects/` to extract session metadata (title, git branch, status).
-- `src/components/SessionsView.tsx` -- Client component: polls `/api/sessions` every 500ms, displays live/stale sessions with expandable terminal mirror and VimEditor prompt. Vim-style keybindings for navigation (j/k move between sessions, l/h expand/collapse, i to focus editor, O to open terminal, X to kill, gg/G to jump to first/last).
-- `src/components/TerminalMirror.tsx` -- Read-only live terminal mirror. Polls `/api/sessions/screen` for terminal output, fetches color palette from `/api/sessions/colors`. Strips prompt chrome from bottom. Applies user message background highlighting and minimal colorization using the terminal's actual ANSI palette.
-- `src/components/VimEditor.tsx` -- CodeMirror 6 editor with `@replit/codemirror-vim` for vim keybindings. Styled to match MiClaw's design system. Supports Ctrl+Enter to submit.
+### Sessions feature (tabbed terminal dashboard)
+- `src/lib/sessionScanner.ts` -- Scans `~/.claude/sessions/` PID files and reads JSONL logs from `~/.claude/projects/` to extract session metadata (title, git branch, status). Uses mtime-based caching to skip unchanged JSONL reads.
+- `src/lib/miclawSessions.ts` -- Manages MiClaw-owned sessions stored in `~/.claude/miclaw-sessions.json`.
+- `src/components/SessionsView.tsx` -- Client component: tab bar at top, full-height terminal content below. MiClaw tabs get interactive xterm terminals via PTY WebSocket. Detected tabs show read-only `TerminalMirror` with Adopt button. Command mode via `Shift+Space` for keyboard navigation.
+- `src/components/MiclawTerminal.tsx` -- xterm.js terminal connected to a Python PTY server via WebSocket (port 3001). Terminal instances are cached globally and survive tab switches.
+- `src/components/TerminalMirror.tsx` -- Read-only terminal screen mirror for detected sessions. Polls `/api/sessions/screen`, strips prompt area, colorizes output.
 - `src/app/sessions/page.tsx` -- Sessions page (renders `SessionsView`).
-- `src/app/api/sessions/route.ts` -- GET returns all sessions; DELETE kills a session by PID.
-- `src/app/api/sessions/type/route.ts` -- POST types a message into a session's terminal via a compiled Swift helper (`helpers/type-to-terminal`). Uses `osascript` to select the correct Terminal tab, then the Swift helper sends keystrokes without stealing focus.
-- `src/app/api/sessions/screen/route.ts` -- POST returns terminal scrollback text for a given PID via AppleScript `history of tab`.
-- `src/app/api/sessions/colors/route.ts` -- POST returns the full Terminal.app ANSI color palette (bg, fg, bold, selection, 16 ANSI colors) by reading the plist via a Python helper.
-- `src/app/api/sessions/focus/route.ts` -- POST focuses a session's Terminal tab via AppleScript (finds the tab by TTY path).
-- `helpers/type-to-terminal.swift` -- Swift helper that types text into Terminal.app via the macOS Accessibility API. Supports `--no-return` (send without Enter) and `--key <name>` (send special keys). Must be compiled with `swiftc -O type-to-terminal.swift -o type-to-terminal`.
-- `helpers/read-terminal-colors.py` -- Python script that reads Terminal.app's ANSI color palette from the preferences plist, decoding NSColor binary objects to hex values.
+- `src/app/api/sessions/route.ts` -- GET returns detected sessions (filtered to exclude MiClaw-spawned PIDs); DELETE kills a session by PID.
+- `src/app/api/sessions/colors/route.ts` -- Reads Terminal.app color profile for terminal theming.
+- `src/app/api/sessions/focus/route.ts` -- Brings a detected session's Terminal.app window to front.
+- `src/app/api/sessions/screen/route.ts` -- Reads Terminal.app tab history for TerminalMirror.
+- `src/app/api/sessions/upload/route.ts` -- Saves dropped images to temp files for terminal input.
+- `src/app/api/tmux/sessions/route.ts` -- GET/POST/DELETE for MiClaw sessions. Queries PTY server for alive/activity/cost.
+- `src/app/api/tmux/pty-server/route.ts` -- Ensures the PTY server is running.
+- `helpers/pty-server.py` -- Python WebSocket PTY server (port 3001). Manages real PTY processes, survives Next.js restarts.
 
 ### Pages
 - `src/app/page.tsx` -- Overview page with sphere/tree visualization.
@@ -85,6 +86,15 @@ A visualization and editing dashboard for Claude Code configuration. Scans `~/.c
 - `src/app/rules/page.tsx` -- Rules / instruction files detail page.
 - `src/app/sessions/page.tsx` -- Live session monitoring page.
 - `src/app/projects/[slug]/page.tsx` -- Per-project detail page.
+
+### Sessions key patterns
+- Tab-based layout: one session visible at a time, terminal fills viewport below tab bar.
+- MiClaw terminal instances are cached globally in a `Map<sessionId, CachedTerminal>` and survive tab switches (unmount/remount reattaches the DOM element).
+- `Shift+Space` enters command mode (persistent bottom bar). Intercepted at xterm level via `attachCustomKeyEventHandler` so it never reaches Claude Code. Only `Esc` exits command mode.
+- Detected sessions poll at 7s with JSONL mtime caching. MiClaw sessions poll at 3s via PTY server WebSocket.
+- "Waiting for input" detection for detected sessions: scanner reads JSONL tail, checks if last assistant message has `tool_use` blocks with no subsequent `tool_result`.
+- Adopt flow: creates a MiClaw session with `resumeId` pointing to the detected session's `sessionId`, kills the original detected process.
+- `miclaw:command-mode` custom DOM event bridges xterm key interception to SessionsView state.
 
 ### Key patterns
 - Both views are always mounted (no unmount/remount on toggle). Visibility toggled via CSS opacity.
@@ -134,6 +144,13 @@ The `prepublishOnly` script builds standalone output. The CLI (`bin/miclaw.mjs`)
 - Never hardcode machine-specific paths. Use `os.homedir()` and dynamic discovery.
 - D3 is used ONLY for layout math (`d3-hierarchy` pack/tree). All rendering is React/CSS.
 - MCP servers come from both `~/.claude.json` (global) and per-project `.mcp.json` files.
+
+## Development Principles
+
+- **Verify before implementing**: Before building features that depend on external data (JSONL fields, API responses, file formats), verify the data actually exists in the live environment. Use `curl` or scripts to hit the API and inspect real output. Don't assume field names or structures from source code alone -- the runtime format may differ.
+- **MiClaw sessions are the priority**: New features should target MiClaw-managed sessions (interactive xterm terminals). Detected sessions are read-only mirrors meant to encourage adoption -- do not add interactivity or new features to them.
+- **Cost tracking**: Session cost is estimated from `message.usage` token fields in JSONL assistant entries (input_tokens, output_tokens, cache_read_input_tokens, cache_creation_input_tokens). The JSONL does NOT contain explicit cost fields in normal CLI mode -- cost must be computed from tokens.
+- **JSONL field names**: The Claude Code JSONL uses the Anthropic API response format. Assistant entries have `message.usage` with snake_case fields, `message.model`, `message.content` blocks. Non-message entries include types like `system`, `progress`, `file-history-snapshot`, `custom-title`, `ai-title`.
 
 ## Git Rules
 

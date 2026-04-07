@@ -1,12 +1,38 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import type { ActiveSession } from "@/lib/sessionScanner";
-import { Skull, Clock, GitBranch, Terminal, Bot, ChevronDown, ChevronRight, ExternalLink, GripVertical } from "lucide-react";
-import { VimEditor } from "./VimEditor";
+import { Terminal, Eye, Plus, Clock, GitBranch, Bot, Skull, ExternalLink } from "lucide-react";
 import { TerminalMirror } from "./TerminalMirror";
+import { MiclawTerminal, disposeTerminal } from "./MiclawTerminal";
+import type { MiclawSession } from "@/lib/miclawSessions";
 
-const POLL_INTERVAL = 500;
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+interface MiclawSessionWithStatus extends MiclawSession {
+  alive: boolean;
+  activity?: string;
+  costUSD?: number;
+  inputTokens?: number;
+  outputTokens?: number;
+}
+
+type TabItem =
+  | { type: "miclaw"; session: MiclawSessionWithStatus }
+  | { type: "detected"; session: ActiveSession };
+
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+const DETECTED_POLL_INTERVAL = 7000;
+const MICLAW_POLL_INTERVAL = 3000;
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
 
 function formatDuration(startedAt: number): string {
   const ms = Date.now() - startedAt;
@@ -18,321 +44,432 @@ function formatDuration(startedAt: number): string {
   return `${hours}h ${mins % 60}m`;
 }
 
-
-function StatusDot({ status, isAlive, maybeWaiting }: { status?: string; isAlive: boolean; maybeWaiting?: boolean }) {
-  if (!isAlive) return <span className="w-2.5 h-2.5 rounded-full bg-text-dim inline-block shrink-0" title="Dead" />;
-  if (status === "waiting" || maybeWaiting) return <span className="w-2.5 h-2.5 rounded-full bg-yellow-500 animate-pulse inline-block shrink-0" title="Waiting for input" />;
-  if (status === "busy") return <span className="w-2.5 h-2.5 rounded-full bg-accent animate-pulse inline-block shrink-0" title="Busy" />;
-  return <span className="w-2.5 h-2.5 rounded-full bg-green-500 inline-block shrink-0" title="Idle" />;
+function tabId(item: TabItem): string {
+  return item.type === "miclaw" ? item.session.id : `detected-${item.session.pid}`;
 }
 
-async function focusTerminal(pid: number) {
-  try {
-    await fetch("/api/sessions/focus", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ pid }),
-    });
-  } catch {
-    // Silent fail
+function tabName(item: TabItem): string {
+  if (item.type === "miclaw") {
+    const s = item.session;
+    return s.alive ? s.displayName : `${s.displayName} (idle)`;
   }
+  const s = item.session;
+  return s.title ?? s.name ?? s.projectName;
 }
 
-// --- Prompt input ---
+function isTabAlive(item: TabItem): boolean {
+  return item.type === "miclaw" ? item.session.alive : item.session.isAlive;
+}
 
-function SessionPrompt({ session, onInputRef }: { session: ActiveSession; onInputRef?: (el: HTMLInputElement | null) => void }) {
-  const [sending, setSending] = useState(false);
-  const [permError, setPermError] = useState(false);
+function isTabWaiting(item: TabItem): boolean {
+  // Only detected sessions have reliable "waiting for input" detection
+  // (from JSONL: last assistant message has tool_use with no tool_result)
+  if (item.type === "detected") return item.session.maybeWaitingForInput;
+  return false;
+}
 
-  async function handleSubmit(text: string) {
-    if (!text.trim() || sending) return;
-
-    setSending(true);
-    setPermError(false);
-
-    try {
-      const res = await fetch("/api/sessions/type", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          pid: session.pid,
-          sessionId: session.sessionId,
-          cwd: session.cwd,
-          message: text,
-        }),
-      });
-
-      if (res.status === 403) setPermError(true);
-    } catch { /* silent */ } finally {
-      setSending(false);
-    }
+function tabStatus(item: TabItem): string | undefined {
+  if (item.type === "detected") return item.session.status;
+  if (item.type === "miclaw") {
+    // Only show "busy" when actively producing output
+    if (item.session.activity === "producing_output") return "busy";
   }
+  return undefined;
+}
+
+function formatCost(usd: number): string {
+  if (usd < 0.01) return `$${usd.toFixed(4)}`;
+  if (usd < 1) return `$${usd.toFixed(2)}`;
+  return `$${usd.toFixed(2)}`;
+}
+
+function formatTokens(n: number): string {
+  if (n < 1000) return `${n}`;
+  if (n < 1_000_000) return `${(n / 1000).toFixed(1)}k`;
+  return `${(n / 1_000_000).toFixed(1)}M`;
+}
+
+// ---------------------------------------------------------------------------
+// StatusDot
+// ---------------------------------------------------------------------------
+
+function StatusDot({ status, isAlive, maybeWaiting, size = "normal" }: {
+  status?: string;
+  isAlive: boolean;
+  maybeWaiting?: boolean;
+  size?: "small" | "normal";
+}) {
+  const dim = size === "small" ? "w-2 h-2" : "w-2.5 h-2.5";
+  if (!isAlive) return <span className={`${dim} rounded-full bg-text-dim inline-block shrink-0`} title="Dead" />;
+  if (status === "waiting" || maybeWaiting) return <span className={`${dim} rounded-full bg-yellow-500 animate-pulse inline-block shrink-0`} title="Waiting for input" />;
+  if (status === "busy") return <span className={`${dim} rounded-full bg-accent animate-pulse inline-block shrink-0`} title="Busy" />;
+  return <span className={`${dim} rounded-full bg-green-500 inline-block shrink-0`} title="Idle" />;
+}
+
+// ---------------------------------------------------------------------------
+// Tab button
+// ---------------------------------------------------------------------------
+
+function Tab({ item, active, index, onClick }: {
+  item: TabItem;
+  active: boolean;
+  index: number;
+  onClick: () => void;
+}) {
+  const alive = isTabAlive(item);
+  const isMiclaw = item.type === "miclaw";
 
   return (
-    <div className="mt-3 space-y-2">
-      {permError && (
-        <p className="text-xs font-mono text-accent">
-          Grant accessibility access: System Settings &gt; Privacy &amp; Security &gt; Accessibility &gt; enable Terminal
-        </p>
-      )}
-      <VimEditor
-        onSubmit={handleSubmit}
-        placeholder="Type into this session... -- vim enabled"
-        disabled={sending || !session.isAlive}
-        inputRef={(el) => onInputRef?.(el as HTMLInputElement | null)}
+    <button
+      onClick={onClick}
+      title={`${tabName(item)}${index < 9 ? ` (Shift+Space ${index + 1})` : ""}`}
+      className={[
+        "flex items-center gap-2.5 px-4 py-3 text-sm font-mono whitespace-nowrap shrink-0 border-b-2 transition-colors",
+        active
+          ? "border-accent text-text bg-surface-raised/40"
+          : "border-transparent hover:bg-surface-hover/30",
+        alive ? "" : "opacity-40",
+        isMiclaw ? "text-text" : "text-text-muted",
+      ].join(" ")}
+    >
+      <StatusDot
+        status={tabStatus(item)}
+        isAlive={alive}
+        maybeWaiting={isTabWaiting(item)}
+        size="small"
       />
-    </div>
+      {isMiclaw ? <Terminal size={13} /> : <Eye size={13} />}
+      <span className="max-w-[180px] truncate">{tabName(item)}</span>
+      {index < 9 && (
+        <span className="text-[10px] text-text-dim/40 ml-0.5">{index + 1}</span>
+      )}
+    </button>
   );
 }
 
-// --- Session row ---
+// ---------------------------------------------------------------------------
+// Detected session content (read-only)
+// ---------------------------------------------------------------------------
 
-function SessionRow({
-  session,
-  onKill,
-  isVimSelected,
-  expanded,
-  onToggleExpand,
-  onRowRef,
-  onInputRef,
-  index,
-  onDragStart,
-  onDragOver,
-  onDragEnd,
-  isDragOver,
-}: {
+function DetectedSessionContent({ session, onAdopt, onKill }: {
   session: ActiveSession;
+  onAdopt: () => void;
   onKill: () => void;
-  isVimSelected: boolean;
-  expanded: boolean;
-  onToggleExpand: () => void;
-  onRowRef: (el: HTMLDivElement | null) => void;
-  onInputRef: (el: HTMLInputElement | null) => void;
-  index: number;
-  onDragStart: (index: number) => void;
-  onDragOver: (e: React.DragEvent, index: number) => void;
-  onDragEnd: () => void;
-  isDragOver: boolean;
 }) {
-  const [hovered, setHovered] = useState(false);
+  const shortPath = session.cwd.replace(/^\/Users\/[^/]+/, "~");
 
   return (
-    <div
-      ref={onRowRef}
-      draggable
-      onDragStart={(e) => { e.dataTransfer.effectAllowed = "move"; onDragStart(index); }}
-      onDragOver={(e) => onDragOver(e, index)}
-      onDragEnd={onDragEnd}
-      className={`border-b border-border ${!session.isAlive ? "opacity-30" : ""} ${isVimSelected ? "border-l-2 border-l-accent bg-surface-hover/30" : ""} ${isDragOver ? "border-t-2 border-t-accent" : ""}`}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-    >
-      {/* Main row */}
-      <div
-        className="flex items-center gap-4 py-4 px-2 cursor-pointer hover:bg-surface-hover/50 transition-colors"
-        onClick={onToggleExpand}
-      >
-        <span className="text-text-dim/30 shrink-0 cursor-grab active:cursor-grabbing">
-          <GripVertical size={14} />
-        </span>
+    <div className="flex flex-col h-full">
+      {/* Top banner */}
+      <div className="shrink-0 px-4 py-3 border-b border-border bg-surface-raised/30">
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex items-center gap-3 min-w-0">
+            <StatusDot
+              status={session.status}
+              isAlive={session.isAlive}
+              maybeWaiting={session.maybeWaitingForInput}
+            />
+            <div className="min-w-0">
+              <p className="text-sm font-mono font-medium text-text truncate">
+                {session.title ?? session.name ?? session.projectName}
+              </p>
+              <div className="flex items-center gap-3 text-[11px] font-mono text-text-dim mt-0.5">
+                <span>{shortPath}</span>
+                {session.gitBranch && (
+                  <span className="flex items-center gap-1">
+                    <GitBranch size={10} />
+                    {session.gitBranch}
+                  </span>
+                )}
+                {session.agent && (
+                  <span className="flex items-center gap-1">
+                    <Bot size={10} />
+                    {session.agent}
+                  </span>
+                )}
+                {session.startedAt > 0 && (
+                  <span className="flex items-center gap-1">
+                    <Clock size={10} />
+                    {formatDuration(session.startedAt)}
+                  </span>
+                )}
+                <span>PID {session.pid}</span>
+              </div>
+            </div>
+          </div>
 
-        <span className="text-text-dim shrink-0">
-          {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-        </span>
-
-        <StatusDot status={session.status} isAlive={session.isAlive} maybeWaiting={session.maybeWaitingForInput} />
-
-        <div className="min-w-0 flex-1">
-          <p className="font-mono text-sm font-medium text-text truncate">
-            {session.title ?? session.name ?? session.projectName}
-          </p>
-          <p className="font-mono text-[11px] text-text-dim truncate mt-0.5">
-            {session.cwd.replace(/^\/Users\/[^/]+/, "~")}
-          </p>
+          <div className="flex items-center gap-2 shrink-0">
+            {session.isAlive && (
+              <button
+                onClick={() => {
+                  fetch("/api/sessions/focus", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ pid: session.pid }),
+                  });
+                }}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-sm border border-border text-xs font-mono text-text-muted hover:text-text hover:border-text-dim/30 transition-colors"
+                title="Jump to Terminal.app (O)"
+              >
+                <ExternalLink size={12} />
+                Terminal
+              </button>
+            )}
+            {session.isAlive && (
+              <button
+                onClick={onAdopt}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-sm bg-accent/10 border border-accent/30 text-xs font-mono text-accent hover:bg-accent/20 transition-colors"
+                title="Adopt into MiClaw (a)"
+              >
+                <Terminal size={12} />
+                Adopt
+              </button>
+            )}
+            {session.isAlive && (
+              <button
+                onClick={onKill}
+                className="p-1.5 rounded-sm text-text-dim hover:text-red-400 hover:bg-surface-hover transition-colors"
+                title="Kill session (X)"
+              >
+                <Skull size={14} />
+              </button>
+            )}
+          </div>
         </div>
 
-        <div className="flex items-center gap-4 text-[11px] font-mono text-text-dim shrink-0">
-          <span className="flex items-center gap-1">
-            <Terminal size={10} />
-            {session.kind}
-          </span>
-          {session.gitBranch && (
-            <span className="flex items-center gap-1">
-              <GitBranch size={10} />
-              {session.gitBranch}
-            </span>
-          )}
-          {session.agent && (
-            <span className="flex items-center gap-1">
-              <Bot size={10} />
-              {session.agent}
-            </span>
-          )}
-          <span className="flex items-center gap-1">
-            <Clock size={10} />
-            {formatDuration(session.startedAt)}
-          </span>
-          <span className="w-12 text-right">:{session.pid}</span>
-        </div>
-
-        {session.isAlive && hovered && (
-          <div className="flex items-center gap-1 shrink-0">
-            <button
-              onClick={(e) => { e.stopPropagation(); focusTerminal(session.pid); }}
-              className="p-1.5 rounded-sm text-text-dim hover:text-accent hover:bg-surface-hover transition-colors"
-              title="Open terminal"
-            >
-              <ExternalLink size={14} />
-            </button>
-            <button
-              onClick={(e) => { e.stopPropagation(); onKill(); }}
-              className="p-1.5 rounded-sm text-text-dim hover:text-red-400 hover:bg-surface-hover transition-colors"
-              title="Kill session"
-            >
-              <Skull size={14} />
-            </button>
+        {/* Waiting for input banner */}
+        {session.isAlive && session.maybeWaitingForInput && (
+          <div className="flex items-center gap-2 mt-2 py-1.5 px-3 rounded-sm bg-yellow-500/10 border border-yellow-500/20">
+            <span className="w-2 h-2 rounded-full bg-yellow-500 animate-pulse shrink-0" />
+            <p className="text-[11px] font-mono text-yellow-500/80">
+              {session.waitingFor
+                ? `waiting: ${session.waitingFor}`
+                : "Session may need input -- Adopt for interactive control"}
+            </p>
           </div>
         )}
-        {(!session.isAlive || !hovered) && <div className="w-16 shrink-0" />}
+
+        {/* Read-only notice */}
+        <p className="text-[10px] font-mono text-text-dim mt-2">
+          Read-only mirror of a Terminal.app session. Adopt to get full interactive control.
+        </p>
       </div>
 
-      {/* Expanded: messages + prompt */}
-      {expanded && (
-        <div className="pb-4 px-10">
-          {session.waitingFor && session.isAlive && (
-            <p className="text-[11px] font-mono text-yellow-500/80 mb-2">
-              waiting: {session.waitingFor}
-            </p>
-          )}
-          {session.maybeWaitingForInput && session.isAlive && !session.waitingFor && (
-            <div className="flex items-center gap-2 mb-2 py-1.5 px-3 rounded-sm bg-yellow-500/10 border border-yellow-500/20">
-              <span className="w-2 h-2 rounded-full bg-yellow-500 animate-pulse shrink-0" />
-              <p className="text-[11px] font-mono text-yellow-500/80">
-                session may need input -- press O to jump to terminal
-              </p>
-            </div>
-          )}
-
-          {/* Terminal mirror (read-only, prompt area stripped) */}
-          <div className="mb-3">
-            <TerminalMirror pid={session.pid} />
-          </div>
-
-          {/* Prompt input */}
-          {session.isAlive && <SessionPrompt session={session} onInputRef={onInputRef} />}
-        </div>
-      )}
+      {/* Terminal mirror fills remaining space */}
+      <div className="flex-1 min-h-0 overflow-hidden">
+        <TerminalMirror pid={session.pid} fillHeight />
+      </div>
     </div>
   );
 }
 
-// --- Main ---
+// ---------------------------------------------------------------------------
+// MiClaw session content (interactive terminal)
+// ---------------------------------------------------------------------------
+
+function MiclawSessionContent({ session, onKill }: {
+  session: MiclawSessionWithStatus;
+  onKill: () => void;
+}) {
+  return (
+    <div className="flex flex-col h-full">
+      {/* Minimal top bar -- glassy look */}
+      <div className="shrink-0 flex items-center justify-between px-4 py-2 border-b border-white/[0.04] bg-white/[0.03] backdrop-blur-sm">
+        <div className="flex items-center gap-3 text-[11px] font-mono text-text-dim">
+          <StatusDot
+            status={session.activity === "producing_output" ? "busy" : undefined}
+            isAlive={session.alive}
+            size="small"
+          />
+          <span className="text-text text-xs font-medium">{session.displayName}</span>
+          <span>{session.cwd.replace(/^\/Users\/[^/]+/, "~")}</span>
+          {session.created > 0 && (
+            <span className="flex items-center gap-1">
+              <Clock size={10} />
+              {formatDuration(session.created)}
+            </span>
+          )}
+          {session.costUSD != null && session.costUSD > 0 && (
+            <span className="text-text-muted">{formatCost(session.costUSD)}</span>
+          )}
+          {session.inputTokens != null && session.inputTokens > 0 && (
+            <span className="text-text-dim">
+              {formatTokens(session.inputTokens)} in / {formatTokens(session.outputTokens ?? 0)} out
+            </span>
+          )}
+        </div>
+        <button
+          onClick={onKill}
+          className="p-1.5 rounded-sm text-text-dim hover:text-red-400 hover:bg-surface-hover transition-colors"
+          title="Kill session (X)"
+        >
+          <Skull size={14} />
+        </button>
+      </div>
+
+      {/* Resume banner */}
+      {!session.alive && (
+        <div className="shrink-0 flex items-center gap-2 mx-4 mt-2 py-2 px-3 rounded-sm bg-accent/10 border border-accent/20">
+          <span className="text-[11px] font-mono text-accent">Session will resume with --resume on connection</span>
+        </div>
+      )}
+
+      {/* Terminal fills remaining space */}
+      <div className="flex-1 min-h-0 overflow-hidden p-2" data-miclaw-session={session.id}>
+        <MiclawTerminal
+          sessionId={session.id}
+          cwd={session.cwd}
+          name={session.displayName}
+          resumeId={!session.alive ? session.claudeSessionId : undefined}
+        />
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// New Session form
+// ---------------------------------------------------------------------------
+
+function NewSessionForm({ onCreate, onCancel }: {
+  onCreate: (name: string, cwd: string) => void;
+  onCancel: () => void;
+}) {
+  const [name, setName] = useState("");
+  const [cwd, setCwd] = useState("~/Desktop");
+  const [creating, setCreating] = useState(false);
+
+  async function handleCreate() {
+    setCreating(true);
+    onCreate(name, cwd);
+  }
+
+  return (
+    <div className="flex items-center justify-center h-full">
+      <div className="w-full max-w-md p-6 border border-border rounded-sm bg-surface-raised/50">
+        <h2 className="text-sm font-mono font-medium text-text mb-4">New MiClaw Session</h2>
+        <div className="space-y-3">
+          <div>
+            <label className="text-[10px] font-mono text-text-dim uppercase tracking-wider block mb-1">Name (optional)</label>
+            <input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="my-project"
+              autoFocus
+              className="w-full bg-transparent border border-border rounded-sm px-3 py-2 text-xs font-mono text-text placeholder:text-text-dim/40 outline-none focus:border-accent/40"
+              onKeyDown={(e) => { if (e.key === "Enter") handleCreate(); if (e.key === "Escape") onCancel(); }}
+            />
+          </div>
+          <div>
+            <label className="text-[10px] font-mono text-text-dim uppercase tracking-wider block mb-1">Working Directory</label>
+            <input
+              value={cwd}
+              onChange={(e) => setCwd(e.target.value)}
+              placeholder="~/Desktop"
+              className="w-full bg-transparent border border-border rounded-sm px-3 py-2 text-xs font-mono text-text placeholder:text-text-dim/40 outline-none focus:border-accent/40"
+              onKeyDown={(e) => { if (e.key === "Enter") handleCreate(); if (e.key === "Escape") onCancel(); }}
+            />
+          </div>
+          <div className="flex gap-2 pt-1">
+            <button
+              onClick={handleCreate}
+              disabled={creating}
+              className="flex-1 px-4 py-2 rounded-sm bg-accent/10 border border-accent/30 text-xs font-mono text-accent hover:bg-accent/20 transition-colors disabled:opacity-40"
+            >
+              {creating ? "Launching..." : "Launch"}
+            </button>
+            <button
+              onClick={onCancel}
+              className="px-4 py-2 rounded-sm border border-border text-xs font-mono text-text-muted hover:text-text transition-colors"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Main component
+// ---------------------------------------------------------------------------
 
 export function SessionsView() {
   const [sessions, setSessions] = useState<ActiveSession[]>([]);
+  const [tmuxSessions, setTmuxSessions] = useState<MiclawSessionWithStatus[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selectedIndex, setSelectedIndex] = useState(0);
-  const [expandedSet, setExpandedSet] = useState<Set<string>>(new Set());
-  const [customOrder, setCustomOrder] = useState<string[] | null>(null);
-  const [dragIndex, setDragIndex] = useState<number | null>(null);
-  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
+  const [activeTabId, setActiveTabId] = useState<string | null>(null);
+  const [showNewForm, setShowNewForm] = useState(false);
+  const [commandMode, setCommandMode] = useState(false);
 
-  const rowRefs = useRef<Map<number, HTMLDivElement | null>>(new Map());
-  const inputRefs = useRef<Map<number, HTMLInputElement | null>>(new Map());
-  const pendingGRef = useRef(false);
+  // ---- Data fetching ----
 
   const fetchSessions = useCallback(async () => {
     try {
       const res = await fetch("/api/sessions");
       if (res.ok) {
-        const newData = await res.json();
-        // Only update state if data actually changed to prevent scroll jitter
+        const data = await res.json();
         setSessions((prev) => {
-          if (JSON.stringify(prev) === JSON.stringify(newData)) return prev;
-          return newData;
+          if (JSON.stringify(prev) === JSON.stringify(data)) return prev;
+          return data;
         });
       }
-    } catch {
-      // Fetch failed
-    } finally {
+    } catch { /* silent */ } finally {
       setLoading(false);
     }
   }, []);
 
+  const fetchTmuxSessions = useCallback(async () => {
+    try {
+      const res = await fetch("/api/tmux/sessions");
+      if (res.ok) {
+        const data = await res.json();
+        setTmuxSessions(data);
+      }
+    } catch { /* silent */ }
+  }, []);
+
   useEffect(() => {
     fetchSessions();
-    const interval = setInterval(fetchSessions, POLL_INTERVAL);
+    const interval = setInterval(fetchSessions, DETECTED_POLL_INTERVAL);
     return () => clearInterval(interval);
   }, [fetchSessions]);
 
-  // Clamp selectedIndex when sessions list changes
   useEffect(() => {
-    if (sessions.length > 0 && selectedIndex >= sessions.length) {
-      setSelectedIndex(sessions.length - 1);
-    }
-  }, [sessions.length, selectedIndex]);
+    fetchTmuxSessions();
+    const interval = setInterval(fetchTmuxSessions, MICLAW_POLL_INTERVAL);
+    return () => clearInterval(interval);
+  }, [fetchTmuxSessions]);
 
-  // Auto-scroll selected row into view
+  // ---- Tab list ----
+
+  const allTabs = useMemo<TabItem[]>(() => [
+    ...tmuxSessions.map((s): TabItem => ({ type: "miclaw", session: s })),
+    ...sessions.map((s): TabItem => ({ type: "detected", session: s })),
+  ], [tmuxSessions, sessions]);
+
+  const allTabsRef = useRef(allTabs);
+  allTabsRef.current = allTabs;
+
+  // Auto-select first tab if current selection is gone
   useEffect(() => {
-    if (sessions.length === 0) return;
-    const session = orderedRef.current[selectedIndex];
-    if (!session) return;
-    const el = rowRefs.current.get(session.pid);
-    if (el) el.scrollIntoView({ block: "nearest", behavior: "smooth" });
-  }, [selectedIndex, sessions]);
-
-  function sessionKey(s: ActiveSession): string {
-    return `${s.pid}-${s.sessionId}`;
-  }
-
-  function toggleExpand(index: number) {
-    const s = orderedRef.current[index];
-    if (!s) return;
-    const key = sessionKey(s);
-    setExpandedSet((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
-  }
-
-  // --- Drag-to-reorder ---
-  function handleDragStart(index: number) {
-    setDragIndex(index);
-  }
-
-  function handleDragOver(e: React.DragEvent, index: number) {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = "move";
-    setDragOverIndex(index);
-  }
-
-  function handleDragEnd() {
-    if (dragIndex !== null && dragOverIndex !== null && dragIndex !== dragOverIndex) {
-      const ordered = [...orderedSessions];
-      const [moved] = ordered.splice(dragIndex, 1);
-      ordered.splice(dragOverIndex, 0, moved);
-      setCustomOrder(ordered.map(sessionKey));
-      setSelectedIndex(dragOverIndex);
+    if (showNewForm) return;
+    if (allTabs.length === 0) {
+      setActiveTabId(null);
+      return;
     }
-    setDragIndex(null);
-    setDragOverIndex(null);
-  }
+    const exists = activeTabId && allTabs.some((t) => tabId(t) === activeTabId);
+    if (!exists) {
+      setActiveTabId(tabId(allTabs[0]));
+    }
+  }, [allTabs, activeTabId, showNewForm]);
 
-  // Apply custom ordering if set, otherwise use API order
-  const orderedSessions = customOrder
-    ? [...sessions].sort((a, b) => {
-        const ai = customOrder.indexOf(sessionKey(a));
-        const bi = customOrder.indexOf(sessionKey(b));
-        return (ai === -1 ? Infinity : ai) - (bi === -1 ? Infinity : bi);
-      })
-    : sessions;
+  const activeTab = allTabs.find((t) => tabId(t) === activeTabId) ?? null;
 
-  const orderedRef = useRef(orderedSessions);
-  orderedRef.current = orderedSessions;
+  // ---- Actions ----
 
-  async function handleKill(pid: number) {
+  async function handleKillDetected(pid: number) {
     if (!window.confirm(`Kill session with PID ${pid}?`)) return;
     try {
       await fetch("/api/sessions", {
@@ -341,161 +478,378 @@ export function SessionsView() {
         body: JSON.stringify({ pid }),
       });
       fetchSessions();
-    } catch {
-      alert("Failed to kill session");
+    } catch { /* silent */ }
+  }
+
+  async function handleKillMiclaw(id: string) {
+    if (!window.confirm("Kill MiClaw session?")) return;
+    try {
+      disposeTerminal(id);
+      await fetch("/api/tmux/sessions", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id }),
+      });
+      await fetchTmuxSessions();
+    } catch { /* silent */ }
+  }
+
+  async function handleAdopt(detected: ActiveSession) {
+    try {
+      const res = await fetch("/api/tmux/sessions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: detected.title ?? detected.name ?? detected.projectName,
+          cwd: detected.cwd,
+          resumeId: detected.sessionId,
+        }),
+      });
+      if (res.ok) {
+        const newSession = await res.json();
+        await fetchTmuxSessions();
+        // Kill original detected session
+        await fetch("/api/sessions", {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ pid: detected.pid }),
+        });
+        await fetchSessions();
+        // Switch to the new MiClaw tab
+        if (newSession?.id) setActiveTabId(newSession.id);
+      }
+    } catch { /* silent */ }
+  }
+
+  async function handleCreateSession(name: string, cwd: string) {
+    try {
+      const res = await fetch("/api/tmux/sessions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: name.trim() || undefined, cwd: cwd.trim() || undefined }),
+      });
+      if (res.ok) {
+        const newSession = await res.json();
+        await fetchTmuxSessions();
+        setShowNewForm(false);
+        if (newSession?.id) setActiveTabId(newSession.id);
+      }
+    } catch { /* silent */ }
+  }
+
+  // ---- Command mode (Shift+Space leader key) ----
+
+  function enterCommandMode() {
+    setCommandMode(true);
+  }
+
+  function executeCommand(key: string) {
+    // Esc is the only way out of command mode
+    if (key === "Escape") {
+      setCommandMode(false);
+      return;
+    }
+
+    const tabs = allTabsRef.current;
+    const currentIdx = tabs.findIndex((t) => tabId(t) === activeTabId);
+    const currentTab = currentIdx >= 0 ? tabs[currentIdx] : null;
+
+    // Number keys 1-9 to jump to tab
+    if (key >= "1" && key <= "9") {
+      const idx = parseInt(key, 10) - 1;
+      if (idx < tabs.length) {
+        setShowNewForm(false);
+        setActiveTabId(tabId(tabs[idx]));
+      }
+      return;
+    }
+
+    switch (key) {
+      case "j":
+      case "]": {
+        if (tabs.length === 0) break;
+        const next = currentIdx < tabs.length - 1 ? currentIdx + 1 : 0;
+        setShowNewForm(false);
+        setActiveTabId(tabId(tabs[next]));
+        break;
+      }
+      case "k":
+      case "[": {
+        if (tabs.length === 0) break;
+        const prev = currentIdx > 0 ? currentIdx - 1 : tabs.length - 1;
+        setShowNewForm(false);
+        setActiveTabId(tabId(tabs[prev]));
+        break;
+      }
+      case "X": {
+        if (currentTab?.type === "miclaw") handleKillMiclaw(currentTab.session.id);
+        else if (currentTab?.type === "detected" && currentTab.session.isAlive) handleKillDetected(currentTab.session.pid);
+        break;
+      }
+      case "O": {
+        if (currentTab?.type === "detected" && currentTab.session.isAlive) {
+          fetch("/api/sessions/focus", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ pid: currentTab.session.pid }),
+          });
+        }
+        break;
+      }
+      case "a": {
+        if (currentTab?.type === "detected" && currentTab.session.isAlive) handleAdopt(currentTab.session);
+        break;
+      }
+      case "n": {
+        setShowNewForm(true);
+        break;
+      }
     }
   }
 
-  // Vim-style keyboard navigation
+  // Listen for Shift+Space from xterm (custom event from MiclawTerminal)
+  useEffect(() => {
+    function onCommandMode() { enterCommandMode(); }
+    window.addEventListener("miclaw:command-mode", onCommandMode);
+    return () => window.removeEventListener("miclaw:command-mode", onCommandMode);
+  }, []);
+
+  // Global keyboard handler
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
-      const activeEl = document.activeElement;
-      const isInputFocused = activeEl instanceof HTMLInputElement
-        || activeEl instanceof HTMLTextAreaElement
-        || activeEl?.closest(".cm-editor") !== null;
+      // Command mode: capture the next key as a command
+      if (commandMode) {
+        e.preventDefault();
+        e.stopPropagation();
+        executeCommand(e.key);
+        return;
+      }
 
-      // When input is focused (insert mode), only Esc returns to normal mode
-      if (isInputFocused) {
-        if (e.key === "Escape") {
+      const el = document.activeElement;
+      const isInputFocused = el instanceof HTMLInputElement
+        || el instanceof HTMLTextAreaElement
+        || el?.closest(".cm-editor") !== null
+        || el?.closest(".xterm") !== null;
+
+      // Shift+Space triggers command mode from anywhere
+      if (e.key === " " && e.shiftKey) {
+        e.preventDefault();
+        enterCommandMode();
+        return;
+      }
+
+      // When input is focused, don't intercept anything else
+      if (isInputFocused) return;
+
+      // When NOT in a terminal/input, bare keys work directly (same commands)
+      const tabs = allTabsRef.current;
+      const currentIdx = tabs.findIndex((t) => tabId(t) === activeTabId);
+      const currentTab = currentIdx >= 0 ? tabs[currentIdx] : null;
+
+      if (e.key >= "1" && e.key <= "9") {
+        const idx = parseInt(e.key, 10) - 1;
+        if (idx < tabs.length) {
           e.preventDefault();
-          (activeEl as HTMLElement).blur();
+          setShowNewForm(false);
+          setActiveTabId(tabId(tabs[idx]));
         }
         return;
       }
 
-      const ordered = orderedRef.current;
-      if (ordered.length === 0) return;
-
-      // Handle gg sequence
-      if (pendingGRef.current) {
-        pendingGRef.current = false;
-        if (e.key === "g") {
-          e.preventDefault();
-          setSelectedIndex(0);
-          return;
-        }
-      }
-
       switch (e.key) {
-        case "j":
-        case "ArrowDown":
+        case "]":
+        case "j": {
           e.preventDefault();
-          setSelectedIndex((prev) => Math.min(prev + 1, ordered.length - 1));
+          if (tabs.length === 0) break;
+          const next = currentIdx < tabs.length - 1 ? currentIdx + 1 : 0;
+          setShowNewForm(false);
+          setActiveTabId(tabId(tabs[next]));
           break;
-
-        case "k":
-        case "ArrowUp":
+        }
+        case "[":
+        case "k": {
           e.preventDefault();
-          setSelectedIndex((prev) => Math.max(prev - 1, 0));
+          if (tabs.length === 0) break;
+          const prev = currentIdx > 0 ? currentIdx - 1 : tabs.length - 1;
+          setShowNewForm(false);
+          setActiveTabId(tabId(tabs[prev]));
           break;
-
-        case "l":
+        }
+        case "i": {
           e.preventDefault();
-          toggleExpand(selectedIndex);
+          if (currentTab?.type === "miclaw") {
+            const textarea = document.querySelector(`[data-miclaw-session="${currentTab.session.id}"] textarea`) as HTMLElement | null;
+            textarea?.focus();
+          }
           break;
-
-        case "Escape":
-        case "h": {
+        }
+        case "X": {
           e.preventDefault();
-          const s = ordered[selectedIndex];
-          if (s) {
-            const key = sessionKey(s);
-            setExpandedSet((prev) => {
-              const next = new Set(prev);
-              next.delete(key);
-              return next;
+          if (currentTab?.type === "miclaw") handleKillMiclaw(currentTab.session.id);
+          else if (currentTab?.type === "detected" && currentTab.session.isAlive) handleKillDetected(currentTab.session.pid);
+          break;
+        }
+        case "O": {
+          e.preventDefault();
+          if (currentTab?.type === "detected" && currentTab.session.isAlive) {
+            fetch("/api/sessions/focus", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ pid: currentTab.session.pid }),
             });
           }
           break;
         }
-
-        case "i":
-        case "/": {
+        case "a": {
           e.preventDefault();
-          const s = ordered[selectedIndex];
-          if (!s) break;
-          const key = sessionKey(s);
-          if (!expandedSet.has(key)) {
-            setExpandedSet((prev) => new Set(prev).add(key));
-          }
-          setTimeout(() => {
-            const input = inputRefs.current.get(s.pid);
-            if (input) input.focus();
-          }, 50);
+          if (currentTab?.type === "detected" && currentTab.session.isAlive) handleAdopt(currentTab.session);
           break;
         }
-
-        case "O": {
+        case "n": {
           e.preventDefault();
-          const s = ordered[selectedIndex];
-          if (s?.isAlive) focusTerminal(s.pid);
+          setShowNewForm(true);
           break;
         }
-
-        case "X": {
+        case "Escape": {
           e.preventDefault();
-          const s = ordered[selectedIndex];
-          if (s?.isAlive) handleKill(s.pid);
+          if (showNewForm) setShowNewForm(false);
           break;
         }
-
-        case "g":
-          pendingGRef.current = true;
-          break;
-
-        case "G":
-          e.preventDefault();
-          setSelectedIndex(ordered.length - 1);
-          break;
       }
     }
 
-    document.addEventListener("keydown", handleKeyDown);
-    return () => document.removeEventListener("keydown", handleKeyDown);
+    document.addEventListener("keydown", handleKeyDown, true);
+    return () => document.removeEventListener("keydown", handleKeyDown, true);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessions, selectedIndex, expandedSet]);
+  }, [activeTabId, showNewForm, commandMode]);
 
-  const aliveCount = sessions.filter((s) => s.isAlive).length;
+  // ---- Render ----
+
+  const miclawTabs = allTabs.filter((t) => t.type === "miclaw");
+  const detectedTabs = allTabs.filter((t) => t.type === "detected");
+  const aliveMiclaw = miclawTabs.filter((t) => isTabAlive(t)).length;
+  const aliveDetected = detectedTabs.filter((t) => isTabAlive(t)).length;
 
   return (
-    <div className="h-full overflow-y-auto">
-      <div className="max-w-[90rem] mx-auto px-8 py-8">
-        <div className="mb-8">
-          <h1 className="text-2xl font-mono font-medium tracking-tight">Sessions</h1>
-          <p className="mt-1 text-sm text-text-muted">
-            {loading
-              ? "Scanning..."
-              : `${aliveCount} active, ${sessions.length - aliveCount} stale`}
-          </p>
-        </div>
+    <div className="flex flex-col h-full relative">
+      {/* Tab bar */}
+      <div className="shrink-0 border-b border-border bg-surface/80 backdrop-blur-sm">
+        <div className="flex items-center">
+          <div className="flex items-center overflow-x-auto scrollbar-hide flex-1">
+            {/* MiClaw tabs */}
+            {miclawTabs.map((item, i) => (
+              <Tab
+                key={tabId(item)}
+                item={item}
+                active={!showNewForm && tabId(item) === activeTabId}
+                index={i}
+                onClick={() => { setShowNewForm(false); setActiveTabId(tabId(item)); }}
+              />
+            ))}
 
-        {sessions.length === 0 && !loading && (
-          <p className="text-sm font-mono text-text-dim">No Claude Code sessions found.</p>
+            {/* Separator between groups (only if both exist) */}
+            {miclawTabs.length > 0 && detectedTabs.length > 0 && (
+              <div className="h-6 border-r border-border mx-2 shrink-0" />
+            )}
+
+            {/* Detected tabs */}
+            {detectedTabs.map((item, i) => (
+              <Tab
+                key={tabId(item)}
+                item={item}
+                active={!showNewForm && tabId(item) === activeTabId}
+                index={miclawTabs.length + i}
+                onClick={() => { setShowNewForm(false); setActiveTabId(tabId(item)); }}
+              />
+            ))}
+          </div>
+
+          {/* Right side: counts + new button */}
+          <div className="flex items-center gap-3 px-3 shrink-0 border-l border-border">
+            <span className="text-[10px] font-mono text-text-dim">
+              {loading
+                ? "..."
+                : `${aliveMiclaw + aliveDetected} active`}
+            </span>
+            <button
+              onClick={() => setShowNewForm(true)}
+              className={[
+                "flex items-center gap-1 px-2 py-1.5 rounded-sm text-xs font-mono transition-colors",
+                showNewForm
+                  ? "text-accent border border-accent/30 bg-accent/10"
+                  : "text-text-muted hover:text-accent border border-transparent hover:border-accent/20",
+              ].join(" ")}
+              title="New session (n)"
+            >
+              <Plus size={12} />
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Tab content */}
+      <div className="flex-1 min-h-0 overflow-hidden">
+        {showNewForm ? (
+          <NewSessionForm
+            onCreate={handleCreateSession}
+            onCancel={() => setShowNewForm(false)}
+          />
+        ) : activeTab?.type === "miclaw" ? (
+          <MiclawSessionContent
+            key={activeTab.session.id}
+            session={activeTab.session}
+            onKill={() => handleKillMiclaw(activeTab.session.id)}
+          />
+        ) : activeTab?.type === "detected" ? (
+          <DetectedSessionContent
+            key={activeTab.session.pid}
+            session={activeTab.session}
+            onAdopt={() => handleAdopt(activeTab.session)}
+            onKill={() => handleKillDetected(activeTab.session.pid)}
+          />
+        ) : (
+          <div className="flex flex-col items-center justify-center h-full gap-4">
+            <p className="text-sm font-mono text-text-dim">
+              {loading ? "Scanning sessions..." : "No sessions detected"}
+            </p>
+            {!loading && (
+              <button
+                onClick={() => setShowNewForm(true)}
+                className="flex items-center gap-1.5 px-4 py-2 rounded-sm bg-accent/10 border border-accent/30 text-xs font-mono text-accent hover:bg-accent/20 transition-colors"
+              >
+                <Plus size={12} />
+                New Session
+              </button>
+            )}
+          </div>
         )}
+      </div>
 
-        <div>
-          {orderedSessions.map((session, index) => (
-            <SessionRow
-              key={`${session.pid}-${session.sessionId}`}
-              session={session}
-              onKill={() => handleKill(session.pid)}
-              isVimSelected={index === selectedIndex}
-              expanded={expandedSet.has(sessionKey(session))}
-              onToggleExpand={() => toggleExpand(index)}
-              onRowRef={(el) => { rowRefs.current.set(session.pid, el); }}
-              onInputRef={(el) => { inputRefs.current.set(session.pid, el); }}
-              index={index}
-              onDragStart={handleDragStart}
-              onDragOver={handleDragOver}
-              onDragEnd={handleDragEnd}
-              isDragOver={dragOverIndex === index}
-            />
-          ))}
-        </div>
-
-        <p className="text-[10px] font-mono text-text-dim text-center mt-4">
-          j/k navigate -- l/h expand/collapse -- i insert -- O terminal -- X kill
-        </p>
+      {/* Bottom bar: command mode or hint */}
+      <div className={[
+        "shrink-0 border-t px-4 py-2 transition-colors",
+        commandMode
+          ? "border-accent/40 bg-accent/5"
+          : "border-border bg-surface/80",
+      ].join(" ")}>
+        {commandMode ? (
+          <div className="flex items-center gap-6 text-[11px] font-mono">
+            <span className="text-accent font-medium shrink-0">COMMAND</span>
+            <div className="flex items-center gap-4 flex-wrap">
+              <span className="text-text-muted"><span className="text-text">1-9</span> tab</span>
+              <span className="text-text-muted"><span className="text-text">j/k</span> cycle</span>
+              <span className="text-text-muted"><span className="text-text">n</span> new</span>
+              <span className="text-text-muted"><span className="text-text">a</span> adopt</span>
+              <span className="text-text-muted"><span className="text-text">X</span> kill</span>
+              <span className="text-text-muted"><span className="text-text">O</span> terminal</span>
+            </div>
+            <span className="text-text-dim ml-auto shrink-0">Esc to exit</span>
+          </div>
+        ) : (
+          <p className="text-[10px] font-mono text-text-dim text-center">
+            Shift+Space for command mode
+          </p>
+        )}
       </div>
     </div>
   );

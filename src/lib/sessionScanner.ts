@@ -7,6 +7,23 @@ const SESSIONS_DIR = path.join(CLAUDE_DIR, "sessions");
 // How much of the JSONL tail to read for metadata
 const TAIL_READ_SIZE = 2 * 1024 * 1024; // 2MB
 
+// Cache JSONL reads keyed by sessionId; skip expensive re-reads when mtime unchanged
+const jsonlCache = new Map<string, {
+  data: {
+    title?: string;
+    gitBranch?: string;
+    lastPrompt?: string;
+    recentMessages: SessionMessage[];
+    lastModified?: number;
+    lastEntryIsToolUse: boolean;
+    costUSD?: number;
+    inputTokens?: number;
+    outputTokens?: number;
+    sessionState?: "idle" | "running" | "requires_action";
+  };
+  mtime: number;
+}>();
+
 export interface ActiveSession {
   pid: number;
   sessionId: string;
@@ -28,6 +45,9 @@ export interface ActiveSession {
   gitBranch?: string;
   lastPrompt?: string;
   recentMessages: SessionMessage[];
+  costUSD?: number;
+  inputTokens?: number;
+  outputTokens?: number;
 }
 
 export interface SessionMessage {
@@ -142,6 +162,10 @@ async function readJsonlTail(sessionId: string): Promise<{
   recentMessages: SessionMessage[];
   lastModified?: number;
   lastEntryIsToolUse: boolean;
+  costUSD?: number;
+  inputTokens?: number;
+  outputTokens?: number;
+  sessionState?: "idle" | "running" | "requires_action";
 }> {
   // Find the JSONL file across all project directories
   try {
@@ -151,6 +175,10 @@ async function readJsonlTail(sessionId: string): Promise<{
       const jsonlPath = path.join(PROJECTS_DIR, dir.name, `${sessionId}.jsonl`);
       try {
         const stat = await fs.stat(jsonlPath);
+        const cached = jsonlCache.get(sessionId);
+        if (cached && cached.mtime === stat.mtimeMs) {
+          return cached.data;
+        }
         const fd = await fs.open(jsonlPath, "r");
         try {
           // Read tail
@@ -164,23 +192,89 @@ async function readJsonlTail(sessionId: string): Promise<{
           const lastPrompt = extractField(tail, "lastPrompt");
           const recentMessages = extractRecentMessages(tail, 200);
 
-          // Check if the last meaningful entry is an assistant with tool_use
-          // (meaning Claude sent a tool request but we haven't seen the result yet)
+          // Check if the session is waiting for user input:
+          // The last transcript entry should be an assistant message with tool_use blocks
+          // AND there should be NO subsequent user message with tool_result (which would mean
+          // the tool was already approved/handled).
           const lines = tail.split("\n").filter(Boolean);
           let lastEntryIsToolUse = false;
+          let foundAssistantToolUse = false;
+          let foundSubsequentToolResult = false;
           for (let i = lines.length - 1; i >= 0; i--) {
             try {
               const entry = JSON.parse(lines[i]);
-              if (entry.type === "assistant" && entry.message?.content) {
-                const blocks = Array.isArray(entry.message.content) ? entry.message.content : [];
-                lastEntryIsToolUse = blocks.some((b: { type: string }) => b.type === "tool_use");
+              // Skip metadata entries (custom-title, tag, etc.)
+              if (!entry.type || !entry.message) continue;
+
+              if (!foundAssistantToolUse) {
+                // Looking for the most recent assistant message with tool_use
+                if (entry.type === "assistant" && entry.message?.content) {
+                  const blocks = Array.isArray(entry.message.content) ? entry.message.content : [];
+                  if (blocks.some((b: { type: string }) => b.type === "tool_use")) {
+                    foundAssistantToolUse = true;
+                  } else {
+                    break; // Last assistant message has no tool_use, not waiting
+                  }
+                } else if (entry.type === "user") {
+                  // Check if this user message contains tool_result
+                  const content = entry.message?.content;
+                  if (Array.isArray(content) && content.some((b: { type: string }) => b.type === "tool_result")) {
+                    foundSubsequentToolResult = true;
+                  }
+                  break; // User already responded
+                }
+              } else {
                 break;
               }
-              if (entry.type === "user") break; // User already responded
+            } catch { /* skip */ }
+          }
+          lastEntryIsToolUse = foundAssistantToolUse && !foundSubsequentToolResult;
+
+          // Sum tokens from assistant message.usage fields and extract session state
+          let totalInputTokens = 0;
+          let totalOutputTokens = 0;
+          let totalCacheRead = 0;
+          let totalCacheCreate = 0;
+          let hasUsageData = false;
+          let sessionState: "idle" | "running" | "requires_action" | undefined;
+
+          for (let i = lines.length - 1; i >= 0; i--) {
+            try {
+              const entry = JSON.parse(lines[i]);
+              // Sum usage from assistant messages
+              if (entry.type === "assistant" && entry.message?.usage) {
+                const u = entry.message.usage;
+                if (typeof u.input_tokens === "number") {
+                  totalInputTokens += u.input_tokens;
+                  totalOutputTokens += (u.output_tokens ?? 0);
+                  totalCacheRead += (u.cache_read_input_tokens ?? 0);
+                  totalCacheCreate += (u.cache_creation_input_tokens ?? 0);
+                  hasUsageData = true;
+                }
+              }
+              // Session state from system messages
+              if (sessionState === undefined && entry.type === "system" && entry.subtype === "session_state_changed") {
+                const s = entry.state;
+                if (s === "idle" || s === "running" || s === "requires_action") {
+                  sessionState = s;
+                }
+              }
             } catch { /* skip */ }
           }
 
-          return { title, gitBranch, lastPrompt, recentMessages, lastModified: stat.mtimeMs, lastEntryIsToolUse };
+          // Estimate cost from token counts (Sonnet pricing)
+          // input_tokens is non-cached input at $3/MTok
+          // cache_read at $0.30/MTok, cache_create at $3.75/MTok
+          // output at $15/MTok
+          const costUSD = hasUsageData
+            ? (totalInputTokens * 3 + totalCacheRead * 0.3 + totalCacheCreate * 3.75 + totalOutputTokens * 15) / 1_000_000
+            : undefined;
+          const inputTokens = hasUsageData ? (totalInputTokens + totalCacheRead + totalCacheCreate) : undefined;
+          const outputTokens = hasUsageData ? totalOutputTokens : undefined;
+
+          const result = { title, gitBranch, lastPrompt, recentMessages, lastModified: stat.mtimeMs, lastEntryIsToolUse, costUSD, inputTokens, outputTokens, sessionState };
+          jsonlCache.set(sessionId, { data: result, mtime: stat.mtimeMs });
+          return result;
         } finally {
           await fd.close();
         }
@@ -192,7 +286,7 @@ async function readJsonlTail(sessionId: string): Promise<{
     // PROJECTS_DIR doesn't exist
   }
 
-  return { recentMessages: [], lastEntryIsToolUse: false };
+  return { recentMessages: [], lastEntryIsToolUse: false, costUSD: undefined, inputTokens: undefined, outputTokens: undefined, sessionState: undefined };
 }
 
 export async function scanActiveSessions(): Promise<ActiveSession[]> {
@@ -228,12 +322,15 @@ export async function scanActiveSessions(): Promise<ActiveSession[]> {
             logPath: data.logPath,
             agent: data.agent,
             isAlive,
-            maybeWaitingForInput: isAlive && jsonlData.lastEntryIsToolUse,
+            maybeWaitingForInput: isAlive && (jsonlData.sessionState === "requires_action" || jsonlData.lastEntryIsToolUse),
             lastTranscriptUpdate: jsonlData.lastModified,
             title: jsonlData.title,
             gitBranch: jsonlData.gitBranch,
             lastPrompt: jsonlData.lastPrompt,
             recentMessages: jsonlData.recentMessages,
+            costUSD: jsonlData.costUSD,
+            inputTokens: jsonlData.inputTokens,
+            outputTokens: jsonlData.outputTokens,
           });
         } catch {
           // Skip unparseable PID files
@@ -260,4 +357,18 @@ export async function killSession(pid: number): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+/** Get cost/token data for a session by its Claude session ID (used by MiClaw sessions) */
+export async function getSessionCost(sessionId: string): Promise<{
+  costUSD?: number;
+  inputTokens?: number;
+  outputTokens?: number;
+}> {
+  const data = await readJsonlTail(sessionId);
+  return {
+    costUSD: data.costUSD,
+    inputTokens: data.inputTokens,
+    outputTokens: data.outputTokens,
+  };
 }

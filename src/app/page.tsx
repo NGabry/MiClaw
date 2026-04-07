@@ -1,14 +1,9 @@
-import { scanClaudeConfig } from "@/lib/scanner";
-import { buildSphereData } from "@/lib/sphereData";
-import { OverviewClient } from "@/components/OverviewClient";
+import { SessionsView } from "@/components/SessionsView";
 
-export default async function OverviewPage() {
-  const config = await scanClaudeConfig();
-  const sphereData = buildSphereData(config);
-
+export default function HomePage() {
   return (
     <div className="h-full relative">
-      <OverviewClient data={sphereData} />
+      <SessionsView />
     </div>
   );
 }

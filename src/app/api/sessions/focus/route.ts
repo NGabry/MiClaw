@@ -1,7 +1,4 @@
 import { execSync, execFileSync } from "child_process";
-import { writeFileSync, unlinkSync } from "fs";
-import { tmpdir } from "os";
-import path from "path";
 
 export const dynamic = "force-dynamic";
 
@@ -20,36 +17,27 @@ export async function POST(request: Request) {
 
     const ttyPath = `/dev/${tty}`;
 
-    const scriptPath = path.join(tmpdir(), `miclaw-focus-${Date.now()}.scpt`);
-    const script = [
-      'tell application "Terminal"',
-      "  repeat with w in windows",
-      "    repeat with t in tabs of w",
-      `      if tty of t is "${ttyPath}" then`,
-      "        set selected tab of w to t",
-      "        set index of w to 1",
-      "        activate",
-      '        return "ok"',
-      "      end if",
-      "    end repeat",
-      "  end repeat",
-      '  return "not found"',
-      "end tell",
-    ].join("\n");
+    const result = execFileSync("osascript", [
+      "-e", 'tell application "Terminal"',
+      "-e", "  repeat with w in windows",
+      "-e", "    repeat with t in tabs of w",
+      "-e", `      if tty of t is "${ttyPath}" then`,
+      "-e", "        set selected tab of w to t",
+      "-e", "        set index of w to 1",
+      "-e", "        activate",
+      "-e", '        return "ok"',
+      "-e", "      end if",
+      "-e", "    end repeat",
+      "-e", "  end repeat",
+      "-e", '  return "not found"',
+      "-e", "end tell",
+    ], { encoding: "utf-8", timeout: 5000 }).trim();
 
-    writeFileSync(scriptPath, script, "utf-8");
-
-    try {
-      const result = execFileSync("osascript", [scriptPath], { encoding: "utf-8" }).trim();
-
-      if (result === "ok") {
-        return new Response(JSON.stringify({ success: true }));
-      }
-
-      return new Response(JSON.stringify({ error: "Terminal tab not found" }), { status: 404 });
-    } finally {
-      try { unlinkSync(scriptPath); } catch { /* ignore */ }
+    if (result === "ok") {
+      return new Response(JSON.stringify({ success: true }));
     }
+
+    return new Response(JSON.stringify({ error: "Terminal tab not found" }), { status: 404 });
   } catch (err) {
     return new Response(JSON.stringify({ error: String(err) }), { status: 500 });
   }

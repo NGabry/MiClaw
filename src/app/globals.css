@@ -60,3 +60,11 @@ body {
   0%, 100% { stroke-opacity: 0.3; }
   50% { stroke-opacity: 0.7; }
 }
+
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
