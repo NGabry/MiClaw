@@ -1,39 +1,41 @@
-
+# dependencies
+/node_modules
+/.pnp
+.pnp.*
+.yarn/*
 !.yarn/patches
 !.yarn/plugins
 !.yarn/releases
 !.yarn/versions
-.claude/
-.DS_Store
-.env*
-.pnp.*
-.pnpm-debug.log*
-.venv
-.vercel
-.yarn/*
-*.local
-*.pem
-*.tsbuildinfo
+
+# build output
 /.next/
-/.pnp
+/out/
 /build
 /coverage
-/node_modules
-/out/
-# bun
-# claude code project config
-# debug
-# dependencies
-# env files
-# misc
-# next.js
-# production
-# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
-# testing
-# typescript
-# vercel
-bun.lock
+*.tsbuildinfo
 next-env.d.ts
+
+# env / secrets
+.env*
+*.pem
+
+# package manager
+bun.lock
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+.pnpm-debug.log*
+
+# python (legacy pty-server)
+__pycache__/
+*.pyc
+.venv
+
+# claude code
+.claude/
+
+# misc
+.DS_Store
+.vercel
+*.local
