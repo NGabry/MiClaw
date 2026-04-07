@@ -297,6 +297,9 @@ function MiclawSessionContent({ session, onKill }: {
               {formatTokens(session.inputTokens)} in / {formatTokens(session.outputTokens ?? 0)} out
             </span>
           )}
+          {session.claudeSessionId && (
+            <span className="text-text-dim/50">{session.claudeSessionId}</span>
+          )}
         </div>
         <button
           onClick={onKill}
@@ -315,7 +318,10 @@ function MiclawSessionContent({ session, onKill }: {
       )}
 
       {/* Terminal fills remaining space */}
-      <div className="flex-1 min-h-0 overflow-hidden p-2" data-miclaw-session={session.id}>
+      <div
+        className="flex-1 min-h-0 overflow-hidden p-3"
+        data-miclaw-session={session.id}
+      >
         <MiclawTerminal
           sessionId={session.id}
           cwd={session.cwd}
@@ -544,8 +550,7 @@ export function SessionsView() {
   }
 
   function executeCommand(key: string) {
-    // Esc is the only way out of command mode
-    if (key === "Escape") {
+    if (key === "Escape" || key === "Enter") {
       setCommandMode(false);
       return;
     }
@@ -631,8 +636,8 @@ export function SessionsView() {
         || el?.closest(".cm-editor") !== null
         || el?.closest(".xterm") !== null;
 
-      // Shift+Space triggers command mode from anywhere
-      if (e.key === " " && e.shiftKey) {
+      // Shift+Escape triggers command mode from anywhere
+      if (e.key === "Escape" && e.shiftKey) {
         e.preventDefault();
         enterCommandMode();
         return;
@@ -847,7 +852,7 @@ export function SessionsView() {
           </div>
         ) : (
           <p className="text-[10px] font-mono text-text-dim text-center">
-            Shift+Space for command mode
+            Shift+Esc for command mode
           </p>
         )}
       </div>

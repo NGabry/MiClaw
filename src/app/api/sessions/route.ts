@@ -42,7 +42,11 @@ function getMiclawSpawnedPids(): Set<number> {
 export async function GET() {
   const sessions = await scanActiveSessions();
   const miclawPids = getMiclawSpawnedPids();
-  const filtered = sessions.filter((s) => !miclawPids.has(s.pid));
+  // Strip recentMessages from response -- they're large and unused in the tab UI
+  const filtered = sessions
+    .filter((s) => !miclawPids.has(s.pid))
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    .map(({ recentMessages, ...rest }) => rest);
   return NextResponse.json(filtered);
 }
 

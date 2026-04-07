@@ -68,3 +68,26 @@ body {
   -ms-overflow-style: none;
   scrollbar-width: none;
 }
+
+/* Round the xterm canvas corners to match the container */
+[data-miclaw-terminal] .xterm-viewport {
+  border-radius: 0.75rem;
+}
+[data-miclaw-terminal] .xterm-screen canvas {
+  border-radius: 0.75rem;
+}
+
+/* Grid overlay on terminal -- repeats the bg-grid pattern on top
+   of the terminal with low opacity so the grid subtly shows through. */
+[data-miclaw-terminal]::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 0.75rem;
+  pointer-events: none;
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.025) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.025) 1px, transparent 1px);
+  background-size: 24px 24px;
+  z-index: 1;
+}

@@ -22,7 +22,7 @@ MiClaw includes a session management dashboard with tabbed terminal views:
 
 ### Keyboard navigation
 
-Press **Shift+Space** to enter command mode (works even when a terminal has focus):
+Press **Shift+Esc** to enter command mode (works even when a terminal has focus):
 
 | Key | Action |
 |-----|--------|

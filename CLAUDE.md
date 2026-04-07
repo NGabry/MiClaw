@@ -62,7 +62,7 @@ A visualization and editing dashboard for Claude Code configuration. Scans `~/.c
 ### Sessions feature (tabbed terminal dashboard)
 - `src/lib/sessionScanner.ts` -- Scans `~/.claude/sessions/` PID files and reads JSONL logs from `~/.claude/projects/` to extract session metadata (title, git branch, status). Uses mtime-based caching to skip unchanged JSONL reads.
 - `src/lib/miclawSessions.ts` -- Manages MiClaw-owned sessions stored in `~/.claude/miclaw-sessions.json`.
-- `src/components/SessionsView.tsx` -- Client component: tab bar at top, full-height terminal content below. MiClaw tabs get interactive xterm terminals via PTY WebSocket. Detected tabs show read-only `TerminalMirror` with Adopt button. Command mode via `Shift+Space` for keyboard navigation.
+- `src/components/SessionsView.tsx` -- Client component: tab bar at top, full-height terminal content below. MiClaw tabs get interactive xterm terminals via PTY WebSocket. Detected tabs show read-only `TerminalMirror` with Adopt button. Command mode via `Shift+Esc` for keyboard navigation.
 - `src/components/MiclawTerminal.tsx` -- xterm.js terminal connected to a Python PTY server via WebSocket (port 3001). Terminal instances are cached globally and survive tab switches.
 - `src/components/TerminalMirror.tsx` -- Read-only terminal screen mirror for detected sessions. Polls `/api/sessions/screen`, strips prompt area, colorizes output.
 - `src/app/sessions/page.tsx` -- Sessions page (renders `SessionsView`).
@@ -90,7 +90,7 @@ A visualization and editing dashboard for Claude Code configuration. Scans `~/.c
 ### Sessions key patterns
 - Tab-based layout: one session visible at a time, terminal fills viewport below tab bar.
 - MiClaw terminal instances are cached globally in a `Map<sessionId, CachedTerminal>` and survive tab switches (unmount/remount reattaches the DOM element).
-- `Shift+Space` enters command mode (persistent bottom bar). Intercepted at xterm level via `attachCustomKeyEventHandler` so it never reaches Claude Code. Only `Esc` exits command mode.
+- `Shift+Esc` enters command mode (persistent bottom bar). Intercepted at xterm level via `attachCustomKeyEventHandler` so it never reaches Claude Code. Only `Esc` exits command mode.
 - Detected sessions poll at 7s with JSONL mtime caching. MiClaw sessions poll at 3s via PTY server WebSocket.
 - "Waiting for input" detection for detected sessions: scanner reads JSONL tail, checks if last assistant message has `tool_use` blocks with no subsequent `tool_result`.
 - Adopt flow: creates a MiClaw session with `resumeId` pointing to the detected session's `sessionId`, kills the original detected process.

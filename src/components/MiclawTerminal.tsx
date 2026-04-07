@@ -43,16 +43,6 @@ function fetchPalette(): Promise<TermPalette | null> {
   return palettePromise;
 }
 
-/** Convert hex color to rgba with given alpha */
-function hexToRgba(hex: string, alpha: number): string {
-  const h = hex.replace("#", "");
-  const r = parseInt(h.substring(0, 2), 16);
-  const g = parseInt(h.substring(2, 4), 16);
-  const b = parseInt(h.substring(4, 6), 16);
-  if (isNaN(r) || isNaN(g) || isNaN(b)) return hex;
-  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
-}
-
 function buildTheme(palette: TermPalette | null): import("@xterm/xterm").ITheme {
   const fallback = {
     background: "#2b2a27",
@@ -77,10 +67,8 @@ function buildTheme(palette: TermPalette | null): import("@xterm/xterm").ITheme 
 
   const p = palette ?? fallback;
 
-  const bg = p.background ?? fallback.background;
-
   return {
-    background: hexToRgba(bg, 0.88),
+    background: p.background ?? fallback.background,
     foreground: p.foreground ?? fallback.foreground,
     cursor: "#d97757",
     selectionBackground: "rgba(217, 119, 87, 0.3)",
@@ -109,15 +97,11 @@ interface CachedTerminal {
   fitAddon: import("@xterm/addon-fit").FitAddon;
   ws: WebSocket | null;
   batchWrite: (data: string) => void;
-  userWantsBottom: boolean;
 }
 
 const terminalCache = new Map<string, CachedTerminal>();
 
-function createWriteBatcher(
-  terminal: import("@xterm/xterm").Terminal,
-  cached: { userWantsBottom: boolean },
-) {
+function createWriteBatcher(terminal: import("@xterm/xterm").Terminal) {
   let buffer: string[] = [];
   let scheduled = false;
 
@@ -129,11 +113,7 @@ function createWriteBatcher(
         const batch = buffer.join("");
         buffer = [];
         scheduled = false;
-        terminal.write(batch, () => {
-          if (cached.userWantsBottom) {
-            terminal.scrollToBottom();
-          }
-        });
+        terminal.write(batch);
       });
     }
   };
@@ -253,7 +233,6 @@ export function MiclawTerminal({ sessionId, cwd, resumeId, name }: MiclawTermina
         const fitAddon = new FitAddon();
         const terminal = new Terminal({
           allowProposedApi: true,
-          allowTransparency: true,
           cursorBlink: true,
           cursorStyle: "block",
           fontSize: 13,
@@ -272,16 +251,35 @@ export function MiclawTerminal({ sessionId, cwd, resumeId, name }: MiclawTermina
           fitAddon,
           ws: null,
           batchWrite: () => {},
-          userWantsBottom: true,
         };
-        cached.batchWrite = createWriteBatcher(terminal, cached);
+        cached.batchWrite = createWriteBatcher(terminal);
         terminalCache.set(sessionId, cached);
 
         // Keystrokes -> PTY (registered once, uses cached.ws which updates on reconnect)
+        // Large pastes are chunked to avoid freezing the WebSocket/PTY
+        const INPUT_CHUNK_SIZE = 4096;
+
         terminal.onData((data) => {
-          if (cached?.ws?.readyState === WebSocket.OPEN) {
+          if (!cached?.ws || cached.ws.readyState !== WebSocket.OPEN) return;
+
+          if (data.length <= INPUT_CHUNK_SIZE) {
             cached.ws.send(JSON.stringify({ type: "terminal:input", sessionId, data }));
+            return;
           }
+
+          // Chunk large pastes with small delays between chunks
+          let offset = 0;
+          function sendNextChunk() {
+            if (!cached?.ws || cached.ws.readyState !== WebSocket.OPEN) return;
+            if (offset >= data.length) return;
+            const chunk = data.slice(offset, offset + INPUT_CHUNK_SIZE);
+            offset += INPUT_CHUNK_SIZE;
+            cached.ws.send(JSON.stringify({ type: "terminal:input", sessionId, data: chunk }));
+            if (offset < data.length) {
+              setTimeout(sendNextChunk, 10);
+            }
+          }
+          sendNextChunk();
         });
 
         // Shift+Enter -> CSI u encoding
@@ -294,7 +292,7 @@ export function MiclawTerminal({ sessionId, cwd, resumeId, name }: MiclawTermina
             }
             return false;
           }
-          if (e.type === "keydown" && e.key === " " && e.shiftKey) {
+          if (e.type === "keydown" && e.key === "Escape" && e.shiftKey) {
             e.preventDefault();
             window.dispatchEvent(new CustomEvent("miclaw:command-mode"));
             return false;
@@ -338,17 +336,6 @@ export function MiclawTerminal({ sessionId, cwd, resumeId, name }: MiclawTermina
           cols: lastCols,
           rows: lastRows,
         }));
-      }
-
-      // Track scroll intent via wheel events (same as agent-control-plane)
-      const viewport = terminal.element?.querySelector(".xterm-viewport") as HTMLElement | null;
-      if (viewport) {
-        viewport.addEventListener("wheel", () => {
-          requestAnimationFrame(() => {
-            const buf = terminal.buffer.active;
-            cached!.userWantsBottom = buf.viewportY >= buf.baseY;
-          });
-        }, { passive: true });
       }
 
       // Resize observer with 150ms debounce
@@ -453,7 +440,7 @@ export function MiclawTerminal({ sessionId, cwd, resumeId, name }: MiclawTermina
     <div
       ref={containerRef}
       data-miclaw-terminal
-      className={`rounded-sm border overflow-hidden shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] ${dragOver ? "border-accent ring-1 ring-accent/30" : "border-white/[0.06]"}`}
+      className={`relative rounded-xl border overflow-hidden shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] ${dragOver ? "border-accent ring-1 ring-accent/30" : "border-white/[0.06]"}`}
       style={{ height: "100%", minHeight: "400px" }}
       onClick={() => {
         containerRef.current?.querySelector("textarea")?.focus();

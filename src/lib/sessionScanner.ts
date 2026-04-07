@@ -190,7 +190,7 @@ async function readJsonlTail(sessionId: string): Promise<{
           const title = extractField(tail, "customTitle") ?? extractField(tail, "aiTitle");
           const gitBranch = extractField(tail, "gitBranch");
           const lastPrompt = extractField(tail, "lastPrompt");
-          const recentMessages = extractRecentMessages(tail, 200);
+          const recentMessages = extractRecentMessages(tail, 5);
 
           // Check if the session is waiting for user input:
           // The last transcript entry should be an assistant message with tool_use blocks
