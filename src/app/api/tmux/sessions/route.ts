@@ -68,10 +68,16 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
-  const { name, cwd, resumeId } = await request.json();
+  const { name, cwd, resumeId, permissionMode, model, allowedTools, appendSystemPrompt, worktree } = await request.json();
 
   try {
-    const session = createSession(name || undefined, cwd || undefined, resumeId || undefined);
+    const session = createSession(name || undefined, cwd || undefined, resumeId || undefined, {
+      permissionMode: permissionMode || undefined,
+      model: model || undefined,
+      allowedTools: allowedTools || undefined,
+      appendSystemPrompt: appendSystemPrompt || undefined,
+      worktree: worktree || undefined,
+    });
     return Response.json(session);
   } catch (err) {
     return Response.json({ error: String(err) }, { status: 500 });

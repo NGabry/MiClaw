@@ -119,12 +119,21 @@ function createWriteBatcher(terminal: import("@xterm/xterm").Terminal) {
   };
 }
 
+interface ConnectWsOpts {
+  permissionMode?: string;
+  model?: string;
+  allowedTools?: string;
+  appendSystemPrompt?: string;
+  worktree?: boolean;
+}
+
 function connectWs(
   sessionId: string,
   cwd: string,
   cached: CachedTerminal,
   resumeId?: string,
   name?: string,
+  opts?: ConnectWsOpts,
 ) {
   // Close existing connection without triggering auto-reconnect
   if (cached.ws) {
@@ -159,6 +168,11 @@ function connectWs(
           cwd,
           resume: resumeId,
           name,
+          permissionMode: opts?.permissionMode,
+          model: opts?.model,
+          allowedTools: opts?.allowedTools,
+          appendSystemPrompt: opts?.appendSystemPrompt,
+          worktree: opts?.worktree,
         }));
       } else if (msg.type === "session:created") {
         ws.send(JSON.stringify({
@@ -179,7 +193,7 @@ function connectWs(
   ws.onclose = () => {
     setTimeout(() => {
       if (terminalCache.has(sessionId)) {
-        connectWs(sessionId, cwd, cached, resumeId, name);
+        connectWs(sessionId, cwd, cached, resumeId, name, opts);
       }
     }, 2000);
   };
@@ -193,9 +207,14 @@ interface MiclawTerminalProps {
   cwd: string;
   resumeId?: string;
   name?: string;
+  permissionMode?: string;
+  model?: string;
+  allowedTools?: string;
+  appendSystemPrompt?: string;
+  worktree?: boolean;
 }
 
-export function MiclawTerminal({ sessionId, cwd, resumeId, name }: MiclawTerminalProps) {
+export function MiclawTerminal({ sessionId, cwd, resumeId, name, permissionMode, model, allowedTools, appendSystemPrompt, worktree }: MiclawTerminalProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [error, setError] = useState<string | null>(null);
   const mountedRef = useRef(false);
@@ -256,8 +275,10 @@ export function MiclawTerminal({ sessionId, cwd, resumeId, name }: MiclawTermina
         terminalCache.set(sessionId, cached);
 
         // Keystrokes -> PTY (registered once, uses cached.ws which updates on reconnect)
-        // Large pastes are chunked to avoid freezing the WebSocket/PTY
-        const INPUT_CHUNK_SIZE = 4096;
+        // Large pastes are chunked to avoid overwhelming the PTY buffer.
+        // The PTY server wraps chunks >256 bytes in bracketed paste sequences
+        // and writes them off-thread, so we send larger chunks with more delay.
+        const INPUT_CHUNK_SIZE = 16384;
 
         terminal.onData((data) => {
           if (!cached?.ws || cached.ws.readyState !== WebSocket.OPEN) return;
@@ -267,7 +288,7 @@ export function MiclawTerminal({ sessionId, cwd, resumeId, name }: MiclawTermina
             return;
           }
 
-          // Chunk large pastes with small delays between chunks
+          // Chunk large pastes with delays to let the PTY drain
           let offset = 0;
           function sendNextChunk() {
             if (!cached?.ws || cached.ws.readyState !== WebSocket.OPEN) return;
@@ -276,7 +297,7 @@ export function MiclawTerminal({ sessionId, cwd, resumeId, name }: MiclawTermina
             offset += INPUT_CHUNK_SIZE;
             cached.ws.send(JSON.stringify({ type: "terminal:input", sessionId, data: chunk }));
             if (offset < data.length) {
-              setTimeout(sendNextChunk, 10);
+              setTimeout(sendNextChunk, 50);
             }
           }
           sendNextChunk();
@@ -326,8 +347,9 @@ export function MiclawTerminal({ sessionId, cwd, resumeId, name }: MiclawTermina
       lastRows = terminal.rows;
 
       // Connect/reconnect WebSocket if not connected
+      const wsOpts: ConnectWsOpts = { permissionMode, model, allowedTools, appendSystemPrompt, worktree };
       if (!cached.ws || cached.ws.readyState === WebSocket.CLOSED) {
-        connectWs(sessionId, cwd, cached, resumeId, name);
+        connectWs(sessionId, cwd, cached, resumeId, name, wsOpts);
       } else {
         // Already connected, just send resize to sync
         cached.ws.send(JSON.stringify({
@@ -391,7 +413,7 @@ export function MiclawTerminal({ sessionId, cwd, resumeId, name }: MiclawTermina
       resizeObserver?.disconnect();
       // DON'T dispose terminal or close WS -- they persist in cache
     };
-  }, [sessionId, cwd, resumeId, name]);
+  }, [sessionId, cwd, resumeId, name, permissionMode, model, allowedTools, appendSystemPrompt, worktree]);
 
   const [dragOver, setDragOver] = useState(false);
 
@@ -400,15 +422,59 @@ export function MiclawTerminal({ sessionId, cwd, resumeId, name }: MiclawTermina
     e.stopPropagation();
     setDragOver(false);
 
+    const cached = terminalCache.get(sessionId);
+    if (!cached?.ws || cached.ws.readyState !== WebSocket.OPEN) return;
+
+    function sendToTerminal(text: string) {
+      cached!.ws!.send(JSON.stringify({ type: "terminal:input", sessionId, data: text }));
+    }
+
+    // Try file:// URIs first (works in Safari)
+    const uriList = e.dataTransfer.getData("text/uri-list");
+    if (uriList) {
+      const paths = uriList
+        .split(/\r?\n/)
+        .filter((line) => line.startsWith("file://"))
+        .map((uri) => decodeURIComponent(uri.replace("file://", "")));
+      if (paths.length > 0) {
+        sendToTerminal(paths.join(" "));
+        return;
+      }
+    }
+
+    // Check dropped items: resolve paths via Spotlight for files/folders
+    const items = Array.from(e.dataTransfer.items);
+    const entries = items
+      .map((item) => item.webkitGetAsEntry?.())
+      .filter((entry): entry is FileSystemEntry => entry != null);
+
+    if (entries.length > 0) {
+      const resolved: string[] = [];
+      for (const entry of entries) {
+        try {
+          const res = await fetch("/api/sessions/resolve", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ name: entry.name, isDirectory: entry.isDirectory }),
+          });
+          if (res.ok) {
+            const { path } = await res.json();
+            if (path) resolved.push(path);
+          }
+        } catch { /* skip */ }
+      }
+      if (resolved.length > 0) {
+        sendToTerminal(resolved.join(" "));
+        return;
+      }
+    }
+
+    // Fall back to image upload for image files (clipboard paste, etc.)
     const files = Array.from(e.dataTransfer.files);
     const imageFile = files.find((f) => /^image\//i.test(f.type));
     if (!imageFile) return;
 
-    const cached = terminalCache.get(sessionId);
-    if (!cached?.ws || cached.ws.readyState !== WebSocket.OPEN) return;
-
     try {
-      // Convert to base64 and upload to get a temp file path
       const buf = await imageFile.arrayBuffer();
       const base64 = btoa(String.fromCharCode(...new Uint8Array(buf)));
 
@@ -420,13 +486,7 @@ export function MiclawTerminal({ sessionId, cwd, resumeId, name }: MiclawTermina
 
       if (!res.ok) return;
       const { path } = await res.json();
-
-      // Type the image path into the terminal (Claude Code will detect it)
-      cached.ws.send(JSON.stringify({
-        type: "terminal:input",
-        sessionId,
-        data: path,
-      }));
+      sendToTerminal(path);
     } catch {
       // Silent fail
     }

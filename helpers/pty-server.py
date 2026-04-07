@@ -16,6 +16,7 @@ import os
 import pty
 import re
 import fcntl
+import shlex
 import struct
 import termios
 import signal
@@ -38,7 +39,10 @@ MAX_SCROLLBACK = 5_000_000  # ~5MB of terminal output history per session
 
 class PtyProcess:
     def __init__(self, session_id: str, cwd: str, cols: int, rows: int,
-                 resume_id: str | None = None, name: str | None = None):
+                 resume_id: str | None = None, name: str | None = None,
+                 permission_mode: str | None = None, model: str | None = None,
+                 allowed_tools: str | None = None, append_system_prompt: str | None = None,
+                 worktree: bool = False):
         self.session_id = session_id
         self.master_fd, slave_fd = pty.openpty()
         self.alive = True
@@ -68,6 +72,8 @@ class PtyProcess:
             os.environ["COLORTERM"] = "truecolor"
             os.environ["LANG"] = "en_US.UTF-8"
             os.environ["LC_ALL"] = "en_US.UTF-8"
+            # Enable session state events so JSONL gets requires_action entries
+            os.environ["CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS"] = "1"
             # Remove nesting guard (same as agent-control-plane)
             os.environ.pop("CLAUDECODE", None)
 
@@ -82,15 +88,32 @@ class PtyProcess:
                 cmd_parts.extend(["--resume", resume_id])
             if name:
                 cmd_parts.extend(["--name", name])
-            os.execlp(shell, shell, "-c", " ".join(cmd_parts))
+            if permission_mode:
+                cmd_parts.extend(["--permission-mode", permission_mode])
+            if model:
+                cmd_parts.extend(["--model", model])
+            if allowed_tools:
+                cmd_parts.extend(["--allowedTools", allowed_tools])
+            if append_system_prompt:
+                cmd_parts.extend(["--append-system-prompt", append_system_prompt])
+            if worktree:
+                cmd_parts.append("--worktree")
+            os.execlp(shell, shell, "-c", " ".join(shlex.quote(p) for p in cmd_parts))
         else:
             os.close(slave_fd)
             flags = fcntl.fcntl(self.master_fd, fcntl.F_GETFL)
             fcntl.fcntl(self.master_fd, fcntl.F_SETFL, flags | os.O_NONBLOCK)
 
-    def write(self, data: str):
+    def write(self, data: bytes):
+        """Write all bytes to PTY, handling partial writes."""
         try:
-            os.write(self.master_fd, data.encode("utf-8", errors="surrogateescape"))
+            view = memoryview(data)
+            offset = 0
+            while offset < len(view):
+                n = os.write(self.master_fd, bytes(view[offset:]))
+                if n <= 0:
+                    break
+                offset += n
         except OSError:
             pass
 
@@ -235,6 +258,11 @@ def do_spawn(session_id: str, opts: dict, cols: int, rows: int):
         cols, rows,
         opts.get("resume"),
         opts.get("name"),
+        opts.get("permissionMode"),
+        opts.get("model"),
+        opts.get("allowedTools"),
+        opts.get("appendSystemPrompt"),
+        opts.get("worktree", False),
     )
     ptys[session_id] = p
     asyncio.get_event_loop().create_task(read_loop(session_id))
@@ -260,6 +288,11 @@ async def handle_client(websocket):
                     "cwd": msg.get("cwd", "~"),
                     "resume": msg.get("resume"),
                     "name": msg.get("name"),
+                    "permissionMode": msg.get("permissionMode"),
+                    "model": msg.get("model"),
+                    "allowedTools": msg.get("allowedTools"),
+                    "appendSystemPrompt": msg.get("appendSystemPrompt"),
+                    "worktree": msg.get("worktree", False),
                 }
                 # Subscribe
                 subscriptions.setdefault(sid, set()).add(websocket)
@@ -288,7 +321,16 @@ async def handle_client(websocket):
             elif t == "terminal:input":
                 p = ptys.get(sid)
                 if p and p.alive:
-                    p.write(msg.get("data", ""))
+                    raw = msg.get("data", "")
+                    data = raw.encode("utf-8", errors="surrogateescape")
+                    # Large inputs: write off-thread so we don't block the
+                    # event loop waiting for the PTY buffer to drain.
+                    # Do NOT add bracketed paste wrapping here -- xterm.js
+                    # already wraps pastes when the app enables mode 2004.
+                    if len(data) > 256:
+                        await asyncio.get_event_loop().run_in_executor(None, p.write, data)
+                    else:
+                        p.write(data)
 
             elif t == "session:kill":
                 pending_spawns.pop(sid, None)

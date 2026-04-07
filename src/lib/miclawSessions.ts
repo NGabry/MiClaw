@@ -11,6 +11,11 @@ export interface MiclawSession {
   cwd: string;
   created: number;
   claudeSessionId?: string;  // For resume on crash recovery
+  permissionMode?: string;
+  model?: string;
+  allowedTools?: string;
+  appendSystemPrompt?: string;
+  worktree?: boolean;
 }
 
 function readSessions(): MiclawSession[] {
@@ -30,7 +35,18 @@ export function listSessions(): MiclawSession[] {
   return readSessions();
 }
 
-export function createSession(displayName?: string, cwd?: string, resumeId?: string): MiclawSession {
+export function createSession(
+  displayName?: string,
+  cwd?: string,
+  resumeId?: string,
+  opts?: {
+    permissionMode?: string;
+    model?: string;
+    allowedTools?: string;
+    appendSystemPrompt?: string;
+    worktree?: boolean;
+  },
+): MiclawSession {
   const sessions = readSessions();
   const id = `miclaw-${displayName?.replace(/[^a-zA-Z0-9_-]/g, "-") || randomBytes(4).toString("hex")}`;
   const resolvedCwd = (cwd ?? "~/Desktop").replace(/^~/, homedir());
@@ -41,6 +57,11 @@ export function createSession(displayName?: string, cwd?: string, resumeId?: str
     cwd: resolvedCwd,
     created: Date.now(),
     claudeSessionId: resumeId,
+    permissionMode: opts?.permissionMode,
+    model: opts?.model,
+    allowedTools: opts?.allowedTools,
+    appendSystemPrompt: opts?.appendSystemPrompt,
+    worktree: opts?.worktree,
   };
 
   sessions.push(session);

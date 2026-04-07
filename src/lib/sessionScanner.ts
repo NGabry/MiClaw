@@ -193,42 +193,52 @@ async function readJsonlTail(sessionId: string): Promise<{
           const recentMessages = extractRecentMessages(tail, 5);
 
           // Check if the session is waiting for user input:
-          // The last transcript entry should be an assistant message with tool_use blocks
-          // AND there should be NO subsequent user message with tool_result (which would mean
-          // the tool was already approved/handled).
+          // Find the last assistant message. If its content contains tool_use blocks,
+          // check whether any user message AFTER it contains a tool_result block.
+          // Non-tool-result user messages (task notifications, plain text) are ignored.
+          // NOTE: stop_reason is unreliable (CC source notes this) -- always check
+          // content blocks directly.
           const lines = tail.split("\n").filter(Boolean);
           let lastEntryIsToolUse = false;
-          let foundAssistantToolUse = false;
-          let foundSubsequentToolResult = false;
+          let lastAssistantIdx = -1;
+          let lastAssistantHasToolUse = false;
+
+          // Step 1: Find the last assistant entry with a message
           for (let i = lines.length - 1; i >= 0; i--) {
             try {
               const entry = JSON.parse(lines[i]);
-              // Skip metadata entries (custom-title, tag, etc.)
               if (!entry.type || !entry.message) continue;
-
-              if (!foundAssistantToolUse) {
-                // Looking for the most recent assistant message with tool_use
-                if (entry.type === "assistant" && entry.message?.content) {
-                  const blocks = Array.isArray(entry.message.content) ? entry.message.content : [];
-                  if (blocks.some((b: { type: string }) => b.type === "tool_use")) {
-                    foundAssistantToolUse = true;
-                  } else {
-                    break; // Last assistant message has no tool_use, not waiting
-                  }
-                } else if (entry.type === "user") {
-                  // Check if this user message contains tool_result
-                  const content = entry.message?.content;
-                  if (Array.isArray(content) && content.some((b: { type: string }) => b.type === "tool_result")) {
-                    foundSubsequentToolResult = true;
-                  }
-                  break; // User already responded
+              if (entry.type === "assistant") {
+                lastAssistantIdx = i;
+                const blocks = Array.isArray(entry.message.content) ? entry.message.content : [];
+                if (blocks.some((b: { type: string }) => b.type === "tool_use")) {
+                  lastAssistantHasToolUse = true;
                 }
-              } else {
                 break;
               }
             } catch { /* skip */ }
           }
-          lastEntryIsToolUse = foundAssistantToolUse && !foundSubsequentToolResult;
+
+          // Step 2: If last assistant proposed tool calls, check for tool_result after it
+          if (lastAssistantHasToolUse && lastAssistantIdx >= 0) {
+            let foundToolResult = false;
+            for (let i = lastAssistantIdx + 1; i < lines.length; i++) {
+              try {
+                const entry = JSON.parse(lines[i]);
+                if (!entry.type || !entry.message) continue;
+                if (entry.type === "user") {
+                  const content = entry.message.content;
+                  if (Array.isArray(content) && content.some((b: { type: string }) => b.type === "tool_result")) {
+                    foundToolResult = true;
+                    break;
+                  }
+                  // Non-tool-result user messages (notifications, plain text) are NOT
+                  // considered as "user responded to tool call" -- skip them.
+                }
+              } catch { /* skip */ }
+            }
+            lastEntryIsToolUse = !foundToolResult;
+          }
 
           // Sum tokens from assistant message.usage fields and extract session state
           let totalInputTokens = 0;

@@ -327,6 +327,11 @@ function MiclawSessionContent({ session, onKill }: {
           cwd={session.cwd}
           name={session.displayName}
           resumeId={!session.alive ? session.claudeSessionId : undefined}
+          permissionMode={session.permissionMode}
+          model={session.model}
+          allowedTools={session.allowedTools}
+          appendSystemPrompt={session.appendSystemPrompt}
+          worktree={session.worktree}
         />
       </div>
     </div>
@@ -338,17 +343,39 @@ function MiclawSessionContent({ session, onKill }: {
 // ---------------------------------------------------------------------------
 
 function NewSessionForm({ onCreate, onCancel }: {
-  onCreate: (name: string, cwd: string) => void;
+  onCreate: (name: string, cwd: string, opts?: {
+    permissionMode?: string;
+    model?: string;
+    allowedTools?: string;
+    appendSystemPrompt?: string;
+    worktree?: boolean;
+  }) => void;
   onCancel: () => void;
 }) {
   const [name, setName] = useState("");
   const [cwd, setCwd] = useState("~/Desktop");
   const [creating, setCreating] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [permissionMode, setPermissionMode] = useState("");
+  const [model, setModel] = useState("");
+  const [allowedTools, setAllowedTools] = useState("");
+  const [appendSystemPrompt, setAppendSystemPrompt] = useState("");
+  const [worktree, setWorktree] = useState(false);
 
   async function handleCreate() {
     setCreating(true);
-    onCreate(name, cwd);
+    onCreate(name, cwd, {
+      permissionMode: permissionMode || undefined,
+      model: model || undefined,
+      allowedTools: allowedTools || undefined,
+      appendSystemPrompt: appendSystemPrompt || undefined,
+      worktree: worktree || undefined,
+    });
   }
+
+  const inputClass = "w-full bg-transparent border border-border rounded-sm px-3 py-2 text-xs font-mono text-text placeholder:text-text-dim/40 outline-none focus:border-accent/40";
+  const labelClass = "text-[10px] font-mono text-text-dim uppercase tracking-wider block mb-1";
+  const selectClass = "w-full bg-transparent border border-border rounded-sm px-3 py-2 text-xs font-mono text-text outline-none focus:border-accent/40 [&>option]:bg-[#353430] [&>option]:text-text";
 
   return (
     <div className="flex items-center justify-center h-full">
@@ -356,26 +383,98 @@ function NewSessionForm({ onCreate, onCancel }: {
         <h2 className="text-sm font-mono font-medium text-text mb-4">New MiClaw Session</h2>
         <div className="space-y-3">
           <div>
-            <label className="text-[10px] font-mono text-text-dim uppercase tracking-wider block mb-1">Name (optional)</label>
+            <label className={labelClass}>Name (optional)</label>
             <input
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="my-project"
               autoFocus
-              className="w-full bg-transparent border border-border rounded-sm px-3 py-2 text-xs font-mono text-text placeholder:text-text-dim/40 outline-none focus:border-accent/40"
+              className={inputClass}
               onKeyDown={(e) => { if (e.key === "Enter") handleCreate(); if (e.key === "Escape") onCancel(); }}
             />
           </div>
           <div>
-            <label className="text-[10px] font-mono text-text-dim uppercase tracking-wider block mb-1">Working Directory</label>
+            <label className={labelClass}>Working Directory</label>
             <input
               value={cwd}
               onChange={(e) => setCwd(e.target.value)}
               placeholder="~/Desktop"
-              className="w-full bg-transparent border border-border rounded-sm px-3 py-2 text-xs font-mono text-text placeholder:text-text-dim/40 outline-none focus:border-accent/40"
+              className={inputClass}
               onKeyDown={(e) => { if (e.key === "Enter") handleCreate(); if (e.key === "Escape") onCancel(); }}
             />
           </div>
+
+          {/* Advanced Options */}
+          <div className="pt-1">
+            <button
+              type="button"
+              onClick={() => setShowAdvanced(!showAdvanced)}
+              className="text-[10px] font-mono text-text-dim uppercase tracking-wider hover:text-accent transition-colors"
+            >
+              {showAdvanced ? "- Advanced Options" : "+ Advanced Options"}
+            </button>
+          </div>
+
+          {showAdvanced && (
+            <div className="space-y-3 pt-1 border-t border-border">
+              <div>
+                <label className={labelClass}>Permission Mode</label>
+                <select
+                  value={permissionMode}
+                  onChange={(e) => setPermissionMode(e.target.value)}
+                  className={selectClass}
+                >
+                  <option value="">default</option>
+                  <option value="acceptEdits">acceptEdits</option>
+                  <option value="plan">plan</option>
+                  <option value="bypassPermissions">Dangerously Skip Permissions</option>
+                </select>
+              </div>
+              <div>
+                <label className={labelClass}>Model</label>
+                <select
+                  value={model}
+                  onChange={(e) => setModel(e.target.value)}
+                  className={selectClass}
+                >
+                  <option value="">sonnet (default)</option>
+                  <option value="opus">opus</option>
+                  <option value="haiku">haiku</option>
+                </select>
+              </div>
+              <div>
+                <label className={labelClass}>Allowed Tools</label>
+                <input
+                  value={allowedTools}
+                  onChange={(e) => setAllowedTools(e.target.value)}
+                  placeholder='Bash(git:*) Edit'
+                  className={inputClass}
+                />
+              </div>
+              <div>
+                <label className={labelClass}>Append System Prompt</label>
+                <input
+                  value={appendSystemPrompt}
+                  onChange={(e) => setAppendSystemPrompt(e.target.value)}
+                  placeholder="Additional instructions..."
+                  className={inputClass}
+                />
+              </div>
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  id="worktree-checkbox"
+                  checked={worktree}
+                  onChange={(e) => setWorktree(e.target.checked)}
+                  className="accent-[#d97757]"
+                />
+                <label htmlFor="worktree-checkbox" className={labelClass + " mb-0"}>
+                  Worktree (--worktree)
+                </label>
+              </div>
+            </div>
+          )}
+
           <div className="flex gap-2 pt-1">
             <button
               onClick={handleCreate}
@@ -527,12 +626,26 @@ export function SessionsView() {
     } catch { /* silent */ }
   }
 
-  async function handleCreateSession(name: string, cwd: string) {
+  async function handleCreateSession(name: string, cwd: string, opts?: {
+    permissionMode?: string;
+    model?: string;
+    allowedTools?: string;
+    appendSystemPrompt?: string;
+    worktree?: boolean;
+  }) {
     try {
       const res = await fetch("/api/tmux/sessions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: name.trim() || undefined, cwd: cwd.trim() || undefined }),
+        body: JSON.stringify({
+          name: name.trim() || undefined,
+          cwd: cwd.trim() || undefined,
+          permissionMode: opts?.permissionMode || undefined,
+          model: opts?.model || undefined,
+          allowedTools: opts?.allowedTools || undefined,
+          appendSystemPrompt: opts?.appendSystemPrompt || undefined,
+          worktree: opts?.worktree || undefined,
+        }),
       });
       if (res.ok) {
         const newSession = await res.json();
