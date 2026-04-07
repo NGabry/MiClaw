@@ -17,7 +17,7 @@ import { WebSocketServer } from 'ws';
 import { readFileSync, existsSync } from 'fs';
 import { execSync } from 'child_process';
 import { homedir } from 'os';
-import { join, basename } from 'path';
+import { join } from 'path';
 
 const PORT = parseInt(process.argv[2] || '3001', 10);
 const MAX_SCROLLBACK = 5_000_000; // ~5MB per session

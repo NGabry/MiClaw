@@ -61,20 +61,15 @@ function isTabAlive(item: TabItem): boolean {
   return item.type === "miclaw" ? item.session.alive : item.session.isAlive;
 }
 
-function isTabWaiting(item: TabItem): boolean {
-  // Only detected sessions have reliable "waiting for input" detection
-  // (from JSONL: last assistant message has tool_use with no tool_result)
-  if (item.type === "detected") return item.session.maybeWaitingForInput;
-  return false;
-}
-
-function tabStatus(item: TabItem): string | undefined {
-  if (item.type === "detected") return item.session.status;
-  if (item.type === "miclaw") {
-    // Only show "busy" when actively producing output
-    if (item.session.activity === "producing_output") return "busy";
+function tabTurnState(item: TabItem): "idle" | "working" | "needs_input" {
+  if (item.type === "detected") {
+    return item.session.turnState;
   }
-  return undefined;
+  if (item.type === "miclaw") {
+    // MiClaw sessions: PTY activity is the most responsive signal
+    if (item.session.activity === "producing_output") return "working";
+  }
+  return "idle";
 }
 
 function formatCost(usd: number): string {
@@ -93,16 +88,15 @@ function formatTokens(n: number): string {
 // StatusDot
 // ---------------------------------------------------------------------------
 
-function StatusDot({ status, isAlive, maybeWaiting, size = "normal" }: {
-  status?: string;
+function StatusDot({ turnState, isAlive, size = "normal" }: {
+  turnState: "idle" | "working" | "needs_input";
   isAlive: boolean;
-  maybeWaiting?: boolean;
   size?: "small" | "normal";
 }) {
   const dim = size === "small" ? "w-2 h-2" : "w-2.5 h-2.5";
   if (!isAlive) return <span className={`${dim} rounded-full bg-text-dim inline-block shrink-0`} title="Dead" />;
-  if (status === "waiting" || maybeWaiting) return <span className={`${dim} rounded-full bg-yellow-500 animate-pulse inline-block shrink-0`} title="Waiting for input" />;
-  if (status === "busy") return <span className={`${dim} rounded-full bg-accent animate-pulse inline-block shrink-0`} title="Busy" />;
+  if (turnState === "needs_input") return <span className={`${dim} rounded-full bg-yellow-500 animate-pulse inline-block shrink-0`} title="Needs input" />;
+  if (turnState === "working") return <span className={`${dim} rounded-full bg-cyan-400 animate-pulse inline-block shrink-0`} title="Working" />;
   return <span className={`${dim} rounded-full bg-green-500 inline-block shrink-0`} title="Idle" />;
 }
 
@@ -133,9 +127,8 @@ function Tab({ item, active, index, onClick }: {
       ].join(" ")}
     >
       <StatusDot
-        status={tabStatus(item)}
+        turnState={tabTurnState(item)}
         isAlive={alive}
-        maybeWaiting={isTabWaiting(item)}
         size="small"
       />
       {isMiclaw ? <Terminal size={13} /> : <Eye size={13} />}
@@ -165,9 +158,8 @@ function DetectedSessionContent({ session, onAdopt, onKill }: {
         <div className="flex items-center justify-between gap-4">
           <div className="flex items-center gap-3 min-w-0">
             <StatusDot
-              status={session.status}
+              turnState={session.turnState}
               isAlive={session.isAlive}
-              maybeWaiting={session.maybeWaitingForInput}
             />
             <div className="min-w-0">
               <p className="text-sm font-mono font-medium text-text truncate">
@@ -237,14 +229,14 @@ function DetectedSessionContent({ session, onAdopt, onKill }: {
           </div>
         </div>
 
-        {/* Waiting for input banner */}
-        {session.isAlive && session.maybeWaitingForInput && (
+        {/* Needs input banner */}
+        {session.isAlive && session.turnState === "needs_input" && (
           <div className="flex items-center gap-2 mt-2 py-1.5 px-3 rounded-sm bg-yellow-500/10 border border-yellow-500/20">
             <span className="w-2 h-2 rounded-full bg-yellow-500 animate-pulse shrink-0" />
             <p className="text-[11px] font-mono text-yellow-500/80">
               {session.waitingFor
-                ? `waiting: ${session.waitingFor}`
-                : "Session may need input -- Adopt for interactive control"}
+                ? `needs input: ${session.waitingFor}`
+                : "Session needs input -- Adopt for interactive control"}
             </p>
           </div>
         )}
@@ -277,7 +269,7 @@ function MiclawSessionContent({ session, onKill }: {
       <div className="shrink-0 flex items-center justify-between px-4 py-2 border-b border-white/[0.04] bg-white/[0.03] backdrop-blur-sm">
         <div className="flex items-center gap-3 text-[11px] font-mono text-text-dim">
           <StatusDot
-            status={session.activity === "producing_output" ? "busy" : undefined}
+            turnState={session.activity === "producing_output" ? "working" : "idle"}
             isAlive={session.alive}
             size="small"
           />

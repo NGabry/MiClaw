@@ -15,11 +15,10 @@ const jsonlCache = new Map<string, {
     lastPrompt?: string;
     recentMessages: SessionMessage[];
     lastModified?: number;
-    lastEntryIsToolUse: boolean;
+    turnState: "idle" | "working" | "needs_input";
     costUSD?: number;
     inputTokens?: number;
     outputTokens?: number;
-    sessionState?: "idle" | "running" | "requires_action";
   };
   mtime: number;
 }>();
@@ -38,7 +37,7 @@ export interface ActiveSession {
   logPath?: string;
   agent?: string;
   isAlive: boolean;
-  maybeWaitingForInput: boolean;
+  turnState: "idle" | "working" | "needs_input";
   lastTranscriptUpdate?: number;
   // Derived from JSONL
   title?: string;
@@ -161,11 +160,10 @@ async function readJsonlTail(sessionId: string): Promise<{
   lastPrompt?: string;
   recentMessages: SessionMessage[];
   lastModified?: number;
-  lastEntryIsToolUse: boolean;
+  turnState: "idle" | "working" | "needs_input";
   costUSD?: number;
   inputTokens?: number;
   outputTokens?: number;
-  sessionState?: "idle" | "running" | "requires_action";
 }> {
   // Find the JSONL file across all project directories
   try {
@@ -192,37 +190,39 @@ async function readJsonlTail(sessionId: string): Promise<{
           const lastPrompt = extractField(tail, "lastPrompt");
           const recentMessages = extractRecentMessages(tail, 5);
 
-          // Check if the session is waiting for user input:
-          // Find the last assistant message. If its content contains tool_use blocks,
-          // check whether any user message AFTER it contains a tool_result block.
-          // Non-tool-result user messages (task notifications, plain text) are ignored.
-          // NOTE: stop_reason is unreliable (CC source notes this) -- always check
-          // content blocks directly.
+          // Compute turnState: scan backwards for the last message-bearing entry
           const lines = tail.split("\n").filter(Boolean);
-          let lastEntryIsToolUse = false;
-          let lastAssistantIdx = -1;
+          let turnState: "idle" | "working" | "needs_input" = "idle";
+
+          let lastMsgIdx = -1;
+          let lastMsgType: "assistant" | "user" | undefined;
           let lastAssistantHasToolUse = false;
 
-          // Step 1: Find the last assistant entry with a message
           for (let i = lines.length - 1; i >= 0; i--) {
             try {
               const entry = JSON.parse(lines[i]);
               if (!entry.type || !entry.message) continue;
               if (entry.type === "assistant") {
-                lastAssistantIdx = i;
+                lastMsgIdx = i;
+                lastMsgType = "assistant";
                 const blocks = Array.isArray(entry.message.content) ? entry.message.content : [];
-                if (blocks.some((b: { type: string }) => b.type === "tool_use")) {
-                  lastAssistantHasToolUse = true;
-                }
+                lastAssistantHasToolUse = blocks.some((b: { type: string }) => b.type === "tool_use");
+                break;
+              }
+              if (entry.type === "user") {
+                lastMsgIdx = i;
+                lastMsgType = "user";
                 break;
               }
             } catch { /* skip */ }
           }
 
-          // Step 2: If last assistant proposed tool calls, check for tool_result after it
-          if (lastAssistantHasToolUse && lastAssistantIdx >= 0) {
+          if (lastMsgType === "user") {
+            turnState = "working";
+          } else if (lastMsgType === "assistant" && lastAssistantHasToolUse) {
+            // Scan forward for a tool_result after this assistant message
             let foundToolResult = false;
-            for (let i = lastAssistantIdx + 1; i < lines.length; i++) {
+            for (let i = lastMsgIdx + 1; i < lines.length; i++) {
               try {
                 const entry = JSON.parse(lines[i]);
                 if (!entry.type || !entry.message) continue;
@@ -232,26 +232,28 @@ async function readJsonlTail(sessionId: string): Promise<{
                     foundToolResult = true;
                     break;
                   }
-                  // Non-tool-result user messages (notifications, plain text) are NOT
-                  // considered as "user responded to tool call" -- skip them.
                 }
               } catch { /* skip */ }
             }
-            lastEntryIsToolUse = !foundToolResult;
+            turnState = foundToolResult ? "working" : "needs_input";
+          }
+          // else: assistant with no tool_use, or no messages found -> "idle"
+
+          // Recency override: if JSONL is actively being written, treat idle as working
+          if (turnState === "idle" && (Date.now() - stat.mtimeMs) < 3000) {
+            turnState = "working";
           }
 
-          // Sum tokens from assistant message.usage fields and extract session state
+          // Sum tokens from assistant message.usage fields
           let totalInputTokens = 0;
           let totalOutputTokens = 0;
           let totalCacheRead = 0;
           let totalCacheCreate = 0;
           let hasUsageData = false;
-          let sessionState: "idle" | "running" | "requires_action" | undefined;
 
           for (let i = lines.length - 1; i >= 0; i--) {
             try {
               const entry = JSON.parse(lines[i]);
-              // Sum usage from assistant messages
               if (entry.type === "assistant" && entry.message?.usage) {
                 const u = entry.message.usage;
                 if (typeof u.input_tokens === "number") {
@@ -260,13 +262,6 @@ async function readJsonlTail(sessionId: string): Promise<{
                   totalCacheRead += (u.cache_read_input_tokens ?? 0);
                   totalCacheCreate += (u.cache_creation_input_tokens ?? 0);
                   hasUsageData = true;
-                }
-              }
-              // Session state from system messages
-              if (sessionState === undefined && entry.type === "system" && entry.subtype === "session_state_changed") {
-                const s = entry.state;
-                if (s === "idle" || s === "running" || s === "requires_action") {
-                  sessionState = s;
                 }
               }
             } catch { /* skip */ }
@@ -282,7 +277,7 @@ async function readJsonlTail(sessionId: string): Promise<{
           const inputTokens = hasUsageData ? (totalInputTokens + totalCacheRead + totalCacheCreate) : undefined;
           const outputTokens = hasUsageData ? totalOutputTokens : undefined;
 
-          const result = { title, gitBranch, lastPrompt, recentMessages, lastModified: stat.mtimeMs, lastEntryIsToolUse, costUSD, inputTokens, outputTokens, sessionState };
+          const result = { title, gitBranch, lastPrompt, recentMessages, lastModified: stat.mtimeMs, turnState, costUSD, inputTokens, outputTokens };
           jsonlCache.set(sessionId, { data: result, mtime: stat.mtimeMs });
           return result;
         } finally {
@@ -296,7 +291,7 @@ async function readJsonlTail(sessionId: string): Promise<{
     // PROJECTS_DIR doesn't exist
   }
 
-  return { recentMessages: [], lastEntryIsToolUse: false, costUSD: undefined, inputTokens: undefined, outputTokens: undefined, sessionState: undefined };
+  return { recentMessages: [], turnState: "idle" as const, costUSD: undefined, inputTokens: undefined, outputTokens: undefined };
 }
 
 export async function scanActiveSessions(): Promise<ActiveSession[]> {
@@ -332,7 +327,7 @@ export async function scanActiveSessions(): Promise<ActiveSession[]> {
             logPath: data.logPath,
             agent: data.agent,
             isAlive,
-            maybeWaitingForInput: isAlive && (jsonlData.sessionState === "requires_action" || jsonlData.lastEntryIsToolUse),
+            turnState: isAlive ? jsonlData.turnState : "idle",
             lastTranscriptUpdate: jsonlData.lastModified,
             title: jsonlData.title,
             gitBranch: jsonlData.gitBranch,
