@@ -7,13 +7,15 @@
   },
   "files": [
     "bin/",
+    "helpers/",
+    "scripts/",
     ".next/standalone/",
     ".next/static/",
     "public/"
   ],
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "./scripts/build.sh",
     "start": "next start",
     "lint": "eslint",
     "lint:fix": "eslint --fix",

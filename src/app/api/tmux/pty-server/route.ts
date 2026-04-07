@@ -1,11 +1,8 @@
-import { spawn, execSync } from "child_process";
-import path from "path";
+import { execSync } from "child_process";
 
 export const dynamic = "force-dynamic";
 
 const PTY_PORT = 3001;
-const cwd = process.cwd();
-const serverScript = path.join(cwd, "helpers", "pty-server.mjs");
 
 function isRunning(): boolean {
   try {
@@ -17,12 +14,12 @@ function isRunning(): boolean {
 }
 
 function startServer(): void {
-  const proc = spawn("node", [serverScript, String(PTY_PORT)], {
-    stdio: "ignore",
-    detached: true,
-    cwd,
-  });
-  proc.unref();
+  // Use execSync to launch detached — avoids Turbopack tracing spawn() arguments
+  const root = process.cwd();
+  execSync(
+    `node "${root}/helpers/pty-server.mjs" ${PTY_PORT} &`,
+    { shell: "/bin/sh", timeout: 5000, stdio: "ignore" },
+  );
 }
 
 export async function GET() {
