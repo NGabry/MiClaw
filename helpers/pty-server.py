@@ -50,6 +50,7 @@ class PtyProcess:
         self.output_buffer: list[str] = []  # Server-side scrollback
         self.buffer_size = 0
         self.title: str = ""  # Terminal title set by Claude Code via OSC
+        self.claude_session_id: str | None = None  # Discovered from PID file
         self.last_output_time: float = 0  # For activity tracking
         self.activity: str = "starting"  # starting | producing_output | idle
 
@@ -101,21 +102,21 @@ class PtyProcess:
             os.execlp(shell, shell, "-c", " ".join(shlex.quote(p) for p in cmd_parts))
         else:
             os.close(slave_fd)
-            flags = fcntl.fcntl(self.master_fd, fcntl.F_GETFL)
-            fcntl.fcntl(self.master_fd, fcntl.F_SETFL, flags | os.O_NONBLOCK)
+            # Keep fd in default blocking mode. Both read_loop and writes
+            # run in run_in_executor threads, so blocking is fine -- the
+            # kernel handles flow control naturally without data loss.
 
     def write(self, data: bytes):
         """Write all bytes to PTY, handling partial writes."""
-        try:
-            view = memoryview(data)
-            offset = 0
-            while offset < len(view):
-                n = os.write(self.master_fd, bytes(view[offset:]))
+        offset = 0
+        while offset < len(data):
+            try:
+                n = os.write(self.master_fd, data[offset:])
                 if n <= 0:
                     break
                 offset += n
-        except OSError:
-            pass
+            except OSError:
+                break
 
     def resize(self, cols: int, rows: int):
         try:
@@ -129,6 +130,7 @@ class PtyProcess:
             self._read_buf = b""
 
     def read(self) -> str | None:
+        """Blocking read from PTY. Runs in a thread via run_in_executor."""
         self.__init_read_buffer()
         try:
             data = os.read(self.master_fd, 65536)
@@ -153,8 +155,6 @@ class PtyProcess:
                 result = self._read_buf.decode("utf-8", errors="replace")
                 self._read_buf = b""
                 return result
-        except BlockingIOError:
-            return None
         except OSError:
             return None
 
@@ -171,6 +171,45 @@ class PtyProcess:
             self.alive = False
             return False
 
+    def discover_claude_session_id(self):
+        """Read Claude Code's PID file to get the real session ID.
+
+        Claude Code writes ~/.claude/sessions/<pid>.json shortly after start.
+        The child process is a shell that execs claude, so we check the shell's
+        child processes too.
+        """
+        import glob
+        sessions_dir = os.path.join(os.path.expanduser("~"), ".claude", "sessions")
+        # Check both the direct PID and any child processes
+        pids_to_check = [self.pid]
+        try:
+            # The fork creates a shell which execs claude. Find claude's actual PID.
+            children = glob.glob(f"/proc/{self.pid}/task/*/children")
+            # macOS doesn't have /proc, use pgrep instead
+            import subprocess
+            result = subprocess.run(
+                ["pgrep", "-P", str(self.pid)],
+                capture_output=True, text=True, timeout=2,
+            )
+            if result.returncode == 0:
+                for line in result.stdout.strip().split("\n"):
+                    if line.strip().isdigit():
+                        pids_to_check.append(int(line.strip()))
+        except Exception:
+            pass
+
+        for pid in pids_to_check:
+            pid_file = os.path.join(sessions_dir, f"{pid}.json")
+            try:
+                with open(pid_file) as f:
+                    data = json.load(f)
+                    sid = data.get("sessionId")
+                    if sid:
+                        self.claude_session_id = sid
+                        return
+            except (FileNotFoundError, json.JSONDecodeError):
+                pass
+
     def kill(self):
         self.alive = False
         try:
@@ -186,6 +225,10 @@ class PtyProcess:
 # Active PTY processes (persist across WebSocket reconnects)
 ptys: dict[str, PtyProcess] = {}
 
+# Per-session write locks -- ensures writes are ordered and don't block
+# the WS message handler (writes run as background tasks with the lock).
+write_locks: dict[str, asyncio.Lock] = {}
+
 # Pending spawns (waiting for first resize with real dimensions)
 pending_spawns: dict[str, dict] = {}
 
@@ -193,19 +236,40 @@ pending_spawns: dict[str, dict] = {}
 subscriptions: dict[str, set] = {}
 
 
-async def broadcast(session_id: str, msg: dict):
+def broadcast_nowait(session_id: str, msg: dict):
+    """Queue a broadcast without blocking -- critical for avoiding deadlocks.
+
+    If the read_loop awaits ws.send(), WS backpressure stalls reads, which
+    fills the PTY read buffer, which blocks writes → deadlock.
+    """
     subs = subscriptions.get(session_id, set())
+    if not subs:
+        return
+    payload = json.dumps(msg)
     dead = set()
     for ws in subs:
         try:
-            await ws.send(json.dumps(msg))
+            # Fire-and-forget: don't await. The websockets library queues
+            # the message internally and applies its own backpressure.
+            asyncio.create_task(_ws_send(ws, payload, dead))
         except Exception:
             dead.add(ws)
     subs -= dead
 
 
+async def _ws_send(ws, payload: str, dead: set):
+    try:
+        await ws.send(payload)
+    except Exception:
+        dead.add(ws)
+
+
 async def read_loop(session_id: str):
-    """Background task: read PTY output and broadcast."""
+    """Background task: read PTY output and broadcast.
+
+    Reads must NEVER be blocked by downstream WebSocket sends. We drain
+    the PTY as fast as possible and fire-and-forget broadcasts.
+    """
     p = ptys.get(session_id)
     if not p:
         return
@@ -213,11 +277,19 @@ async def read_loop(session_id: str):
     # Regex to extract OSC title: \x1b]0;title\x07 or \x1b]0;title\x1b\\
     title_re = re.compile(r'\x1b\]0;([^\x07\x1b]*?)(?:\x07|\x1b\\)')
 
+    # Discover Claude's session ID after it has time to start up
+    async def discover_session_id():
+        for _ in range(10):  # Try for ~10 seconds
+            await asyncio.sleep(1)
+            if not p.alive or p.claude_session_id:
+                return
+            await loop.run_in_executor(None, p.discover_claude_session_id)
+    asyncio.create_task(discover_session_id())
+
     loop = asyncio.get_event_loop()
     while p.check_alive():
         data = await loop.run_in_executor(None, p.read)
         if data:
-            # Track activity (2s idle = waiting for input, same as agent-control-plane)
             import time
             p.last_output_time = time.monotonic()
             p.activity = "producing_output"
@@ -229,20 +301,21 @@ async def read_loop(session_id: str):
             # Store in server-side scrollback buffer
             p.output_buffer.append(data)
             p.buffer_size += len(data)
-            # Trim if over limit
             while p.buffer_size > MAX_SCROLLBACK and p.output_buffer:
                 removed = p.output_buffer.pop(0)
                 p.buffer_size -= len(removed)
 
-            await broadcast(session_id, {
+            # Fire-and-forget: never block reads on WS sends
+            broadcast_nowait(session_id, {
                 "type": "terminal:output",
                 "sessionId": session_id,
                 "data": data,
             })
         else:
-            await asyncio.sleep(0.005)
+            # read() returned None -- fd is blocking so this means EOF/error
+            break
 
-    await broadcast(session_id, {
+    broadcast_nowait(session_id, {
         "type": "session:exited",
         "sessionId": session_id,
         "exitCode": p.exit_code,
@@ -323,14 +396,13 @@ async def handle_client(websocket):
                 if p and p.alive:
                     raw = msg.get("data", "")
                     data = raw.encode("utf-8", errors="surrogateescape")
-                    # Large inputs: write off-thread so we don't block the
-                    # event loop waiting for the PTY buffer to drain.
-                    # Do NOT add bracketed paste wrapping here -- xterm.js
-                    # already wraps pastes when the app enables mode 2004.
-                    if len(data) > 256:
-                        await asyncio.get_event_loop().run_in_executor(None, p.write, data)
-                    else:
-                        p.write(data)
+                    # Write in a background task so the WS handler can keep
+                    # processing other messages. Lock preserves write ordering.
+                    lock = write_locks.setdefault(sid, asyncio.Lock())
+                    async def do_write(d: bytes = data, lk: asyncio.Lock = lock) -> None:
+                        async with lk:
+                            await asyncio.get_event_loop().run_in_executor(None, p.write, d)
+                    asyncio.create_task(do_write())
 
             elif t == "session:kill":
                 pending_spawns.pop(sid, None)
@@ -376,6 +448,7 @@ async def handle_client(websocket):
                         "alive": p.check_alive(),
                         "title": p.title,
                         "activity": p.activity,
+                        "claudeSessionId": p.claude_session_id,
                     })
                 active = result
                 await websocket.send(json.dumps({

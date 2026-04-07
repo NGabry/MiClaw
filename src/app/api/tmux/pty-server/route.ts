@@ -1,14 +1,11 @@
 import { spawn, execSync } from "child_process";
 import path from "path";
-import { existsSync } from "fs";
 
 export const dynamic = "force-dynamic";
 
 const PTY_PORT = 3001;
 const cwd = process.cwd();
-const venvDir = path.join(cwd, ".venv");
-const venvPython = path.join(venvDir, "bin", "python3");
-const serverScript = path.join(cwd, "helpers", "pty-server.py");
+const serverScript = path.join(cwd, "helpers", "pty-server.mjs");
 
 function isRunning(): boolean {
   try {
@@ -19,18 +16,8 @@ function isRunning(): boolean {
   }
 }
 
-function ensureVenv(): void {
-  if (existsSync(venvPython)) return;
-
-  // Create venv and install websockets
-  execSync(`python3 -m venv "${venvDir}"`, { timeout: 30000 });
-  execSync(`"${venvPython}" -m pip install websockets -q`, { timeout: 30000 });
-}
-
 function startServer(): void {
-  ensureVenv();
-
-  const proc = spawn(venvPython, [serverScript, String(PTY_PORT)], {
+  const proc = spawn("node", [serverScript, String(PTY_PORT)], {
     stdio: "ignore",
     detached: true,
     cwd,

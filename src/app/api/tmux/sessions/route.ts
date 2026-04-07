@@ -1,4 +1,4 @@
-import { listSessions, createSession, removeSession } from "@/lib/miclawSessions";
+import { listSessions, createSession, removeSession, updateSession } from "@/lib/miclawSessions";
 import { getSessionCost } from "@/lib/sessionScanner";
 import WebSocket from "ws";
 
@@ -11,6 +11,7 @@ interface PtySessionInfo {
   alive: boolean;
   title: string;
   activity: string;
+  claudeSessionId?: string;
 }
 
 /** Query the PTY server for session status and titles */
@@ -52,9 +53,19 @@ export async function GET() {
 
   const annotated = await Promise.all(sessions.map(async (s) => {
     const info = ptyInfo.get(s.id);
-    const cost = s.claudeSessionId ? await getSessionCost(s.claudeSessionId) : {};
+
+    // If the PTY server discovered the Claude session ID and we don't have
+    // it stored yet, persist it so cost tracking works across restarts.
+    let claudeSessionId = s.claudeSessionId;
+    if (!claudeSessionId && info?.claudeSessionId) {
+      claudeSessionId = info.claudeSessionId;
+      updateSession(s.id, { claudeSessionId });
+    }
+
+    const cost = claudeSessionId ? await getSessionCost(claudeSessionId) : {};
     return {
       ...s,
+      claudeSessionId,
       alive: info?.alive ?? false,
       displayName: (info?.title && info.title !== "") ? info.title : s.displayName,
       activity: info?.activity ?? "unknown",

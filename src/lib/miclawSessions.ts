@@ -69,6 +69,15 @@ export function createSession(
   return session;
 }
 
+export function updateSession(id: string, updates: Partial<MiclawSession>): void {
+  const sessions = readSessions();
+  const idx = sessions.findIndex((s) => s.id === id);
+  if (idx >= 0) {
+    sessions[idx] = { ...sessions[idx], ...updates };
+    writeSessions(sessions);
+  }
+}
+
 export function removeSession(id: string): void {
   const sessions = readSessions().filter((s) => s.id !== id);
   writeSessions(sessions);

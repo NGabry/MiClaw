@@ -275,32 +275,12 @@ export function MiclawTerminal({ sessionId, cwd, resumeId, name, permissionMode,
         terminalCache.set(sessionId, cached);
 
         // Keystrokes -> PTY (registered once, uses cached.ws which updates on reconnect)
-        // Large pastes are chunked to avoid overwhelming the PTY buffer.
-        // The PTY server wraps chunks >256 bytes in bracketed paste sequences
-        // and writes them off-thread, so we send larger chunks with more delay.
-        const INPUT_CHUNK_SIZE = 16384;
-
+        // Send input as a single WS message -- no client-side chunking needed.
+        // The PTY server writes in a blocking thread (run_in_executor) so the
+        // kernel handles flow control naturally.
         terminal.onData((data) => {
           if (!cached?.ws || cached.ws.readyState !== WebSocket.OPEN) return;
-
-          if (data.length <= INPUT_CHUNK_SIZE) {
-            cached.ws.send(JSON.stringify({ type: "terminal:input", sessionId, data }));
-            return;
-          }
-
-          // Chunk large pastes with delays to let the PTY drain
-          let offset = 0;
-          function sendNextChunk() {
-            if (!cached?.ws || cached.ws.readyState !== WebSocket.OPEN) return;
-            if (offset >= data.length) return;
-            const chunk = data.slice(offset, offset + INPUT_CHUNK_SIZE);
-            offset += INPUT_CHUNK_SIZE;
-            cached.ws.send(JSON.stringify({ type: "terminal:input", sessionId, data: chunk }));
-            if (offset < data.length) {
-              setTimeout(sendNextChunk, 50);
-            }
-          }
-          sendNextChunk();
+          cached.ws.send(JSON.stringify({ type: "terminal:input", sessionId, data }));
         });
 
         // Shift+Enter -> CSI u encoding
@@ -429,7 +409,33 @@ export function MiclawTerminal({ sessionId, cwd, resumeId, name, permissionMode,
       cached!.ws!.send(JSON.stringify({ type: "terminal:input", sessionId, data: text }));
     }
 
-    // Try file:// URIs first (works in Safari)
+    // Check for image files first -- these need the upload path so Claude
+    // Code can read them (sending a raw path isn't enough for screenshots).
+    const files = Array.from(e.dataTransfer.files);
+    const imageFile = files.find((f) => /^image\//i.test(f.type));
+
+    if (imageFile) {
+      try {
+        const buf = await imageFile.arrayBuffer();
+        const base64 = btoa(String.fromCharCode(...new Uint8Array(buf)));
+
+        const res = await fetch("/api/sessions/upload", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ data: base64, filename: imageFile.name }),
+        });
+
+        if (res.ok) {
+          const { path } = await res.json();
+          sendToTerminal(path);
+          return;
+        }
+      } catch {
+        // Fall through to path-based approaches
+      }
+    }
+
+    // Try file:// URIs (Finder drag gives these in Safari)
     const uriList = e.dataTransfer.getData("text/uri-list");
     if (uriList) {
       const paths = uriList
@@ -442,7 +448,7 @@ export function MiclawTerminal({ sessionId, cwd, resumeId, name, permissionMode,
       }
     }
 
-    // Check dropped items: resolve paths via Spotlight for files/folders
+    // Try resolving dropped items via Spotlight (works in Chrome for folders)
     const items = Array.from(e.dataTransfer.items);
     const entries = items
       .map((item) => item.webkitGetAsEntry?.())
@@ -465,30 +471,7 @@ export function MiclawTerminal({ sessionId, cwd, resumeId, name, permissionMode,
       }
       if (resolved.length > 0) {
         sendToTerminal(resolved.join(" "));
-        return;
       }
-    }
-
-    // Fall back to image upload for image files (clipboard paste, etc.)
-    const files = Array.from(e.dataTransfer.files);
-    const imageFile = files.find((f) => /^image\//i.test(f.type));
-    if (!imageFile) return;
-
-    try {
-      const buf = await imageFile.arrayBuffer();
-      const base64 = btoa(String.fromCharCode(...new Uint8Array(buf)));
-
-      const res = await fetch("/api/sessions/upload", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ data: base64, filename: imageFile.name }),
-      });
-
-      if (!res.ok) return;
-      const { path } = await res.json();
-      sendToTerminal(path);
-    } catch {
-      // Silent fail
     }
   }
 
