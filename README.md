@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/NGabry/MiClaw/main/public/lobster.svg" alt="MiClaw" width="600" />
+  <img src="https://raw.githubusercontent.com/NGabry/MiClaw/main/public/lobster.gif" alt="MiClaw" width="480" />
 </p>
 
 ### Maintain Your Lobsters
