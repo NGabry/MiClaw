@@ -1,62 +1,89 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/NGabry/MiClaw/main/public/logo.png" alt="MiClaw Logo" width="200" />
+  <img src="https://raw.githubusercontent.com/NGabry/MiClaw/main/public/lobster.svg" alt="MiClaw" width="600" />
 </p>
 
-## Overview
+### Maintain Your Lobsters
 
-MiClaw helps you maintain your lobsters. It scans your `~/.claude/` directory and project-level configuration files to present a unified view of how Claude Code is set up on your machine. It surfaces agents, skills, slash commands, MCP servers, hooks, settings, permissions, keybindings, and instruction files to help you visulaize inheritance and nesting patterns among your different claude powered projects.
+Launch, manage, and monitor all your Claude Code sessions in one place.
 
-It also allows editing of skills, slash commands, and rules directly in the app for easy centralized maintenance of all your claude files.
+One dashboard. Every session. Full terminals. Real-time status.
+Plus a unified view of every agent, skill, hook, and config across your entire machine.
 
-MiClaw includes a session management dashboard with tabbed terminal views:
+<p align="center">
+  <a href="https://www.npmjs.com/package/miclaw-app"><img src="https://img.shields.io/npm/v/miclaw-app?style=flat-square&color=d97757&label=version" alt="npm version" /></a>
+  <a href="https://www.npmjs.com/package/miclaw-app"><img src="https://img.shields.io/npm/dm/miclaw-app?style=flat-square&color=2b2a27&label=downloads" alt="monthly downloads" /></a>
+  <a href="https://github.com/NGabry/MiClaw"><img src="https://img.shields.io/github/stars/NGabry/MiClaw?style=flat-square&color=d97757&label=stars" alt="github stars" /></a>
+  <img src="https://img.shields.io/badge/platform-macOS-2b2a27?style=flat-square" alt="macOS" />
+  <img src="https://img.shields.io/badge/node-20%2B-d97757?style=flat-square" alt="node 20+" />
+</p>
 
-- **MiClaw sessions** run Claude Code in embedded interactive terminals (xterm.js) powered by a local PTY server. These survive page refreshes, support full two-way interaction, and can resume crashed sessions automatically.
-- **Detected sessions** are Claude Code instances running in Terminal.app. MiClaw shows a read-only terminal mirror of their output. You can **Adopt** a detected session to convert it into a fully managed MiClaw session.
+---
 
-### Session status indicators
+<!-- replace with a demo GIF/video of sessions: tab switching, launching, adopt flow, status indicators -->
+![MiClaw](https://raw.githubusercontent.com/NGabry/MiClaw/main/public/screenshot.png)
 
-- **Green** -- session is alive and idle
-- **Yellow (pulsing)** -- session needs your input (tool approval, yes/no prompt)
-- **Orange (pulsing)** -- session is actively working (producing output)
-- **Gray** -- session has ended or the process died
-
-### Keyboard navigation
-
-Press **Shift+Esc** to enter command mode (works even when a terminal has focus):
-
-| Key | Action |
-|-----|--------|
-| `1-9` | Jump to tab by position |
-| `j/k` | Cycle to next/previous tab |
-| `n` | Create a new MiClaw session |
-| `a` | Adopt a detected session |
-| `X` | Kill the active session |
-| `O` | Open detected session in Terminal.app |
-| `Esc` | Exit command mode |
-
-When no terminal is focused, these keys work directly without command mode.
-
-**Primarily developed on macOS.** The embedded terminal sessions feature requires macOS (uses a local PTY server). The core visualization and editing features work on any platform.
-
-## Quick Start
-
-Requires Node.js v20+.
+## Install
 
 ```bash
 npx miclaw-app
 ```
 
-MiClaw will start a local server, find an open port, and open your browser. Press Ctrl+C to stop.
+One command. Local server, open port, browser launches. No cloud, no accounts, no API keys.
 
+---
+
+## Sessions
+
+The core of MiClaw. A tabbed terminal dashboard where you launch, monitor, and control every Claude Code instance on your machine.
+
+- **Launch sessions** -- spin up Claude Code in full interactive xterm.js terminals, right in your browser. Pick a working directory, set a model, configure permissions, and go.
+- **Monitor everything** -- see every running Claude session at a glance with real-time status indicators. Know instantly which sessions are working, which are waiting for input, and which are idle.
+- **Detect and adopt** -- MiClaw automatically discovers Claude Code sessions running in Terminal.app and mirrors their output. One click to **Adopt** any detected session into a fully managed MiClaw terminal.
+- **Crash recovery** -- sessions survive page refreshes and auto-resume if the process dies. Your work doesn't disappear.
+- **Cost tracking** -- real-time token usage and estimated cost per session.
+- **Keyboard-driven** -- `Shift+Esc` enters command mode for fast navigation without touching the mouse.
+
+<!-- replace with a demo GIF of session launch + adopt flow -->
+
+### Keyboard shortcuts
+
+`Shift+Esc` enters command mode (works even inside a focused terminal):
+
+| Key | Action |
+|-----|--------|
+| `1-9` | Jump to tab |
+| `j` / `k` | Next / previous tab |
+| `n` | New session |
+| `a` | Adopt detected session |
+| `X` | Kill active session |
+| `O` | Open in Terminal.app |
+| `Esc` | Exit command mode |
+
+---
+
+## Config dashboard
+
+MiClaw also scans `~/.claude/` and every project-level config to give you a unified picture of how Claude Code is wired across your machine.
+
+- **Visualize** -- interactive circle-pack and tree views that surface agents, skills, slash commands, MCP servers, hooks, settings, permissions, keybindings, and instruction files across all projects
+- **Edit in place** -- modify agents, skills, commands, and instruction files directly in the dashboard. No more hunting through nested directories.
+
+<!-- replace with a screenshot/GIF of the overview visualization -->
+
+---
+
+## Stack
+
+- **Next.js 16** -- App Router, React Server Components, standalone output
+- **React 19** -- client components only where needed
+- **TypeScript** -- strict mode
+- **Tailwind CSS v4** -- `@theme inline` blocks
+- **d3-hierarchy** -- layout math only, React renders the DOM
+- **xterm.js** + **node-pty** -- embedded terminal emulator with PTY server
 
 ## Development
 
-### Prerequisites
-
-- [Node.js](https://nodejs.org/) v20+
-- [Bun](https://bun.sh/) (recommended for package management)
-
-### Setup
+Node.js 20+ and [Bun](https://bun.sh/) required.
 
 ```bash
 git clone https://github.com/NGabry/MiClaw.git
@@ -65,36 +92,36 @@ bun install
 bun run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) in your browser.
+| Command | |
+|---|---|
+| `bun run dev` | Dev server with hot reload |
+| `bun run build` | Production build (standalone) |
+| `bun run check` | Lint + typecheck |
 
-### Commands
-
-```bash
-bun run dev        # Start dev server with hot reload
-bun run build      # Production build (standalone)
-bun run start      # Start production server
-bun run check      # Lint + typecheck
-bun run lint       # ESLint only
-bun run lint:fix   # ESLint auto-fix
-bun run typecheck  # TypeScript only
-```
-
-### Publishing
+## Publishing
 
 ```bash
-npm login
 npm publish
 ```
 
-The `prepublishOnly` script automatically builds the standalone server before publishing. The npm package ships pre-built so end users don't need to compile anything.
+`prepublishOnly` builds standalone output automatically. The npm package ships pre-built -- end users don't compile anything.
 
-## Tech Stack
+## Requirements
 
-- **Next.js 16** -- App Router, React Server Components, standalone output
-- **React 19** -- client components only where interactivity is needed
-- **TypeScript** -- strict mode
-- **Tailwind CSS v4** -- utility-first styling
-- **d3-hierarchy** -- circle-pack and tree layout math (React handles all DOM rendering)
-- **gray-matter** -- YAML frontmatter parsing
-- **react-markdown** + **remark-gfm** -- Markdown rendering for session messages
-- **lucide-react** -- icons
+- Node.js 20+
+- macOS (full feature set -- embedded terminals, session detection, Terminal.app mirroring)
+- Other platforms get config visualization and inline editing
+
+## License
+
+MIT
+
+---
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/NGabry/MiClaw/main/public/logo.png" alt="MiClaw" width="100" />
+  <br/>
+  <sub>"How am i supposed to maintain all these lobsters."</sub>
+  <br/>
+  <sub>-- Nick G.</sub>
+</p>
