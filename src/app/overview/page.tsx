@@ -2,6 +2,8 @@ import { scanClaudeConfig } from "@/lib/scanner";
 import { buildSphereData } from "@/lib/sphereData";
 import { OverviewClient } from "@/components/OverviewClient";
 
+export const dynamic = "force-dynamic";
+
 export default async function OverviewPage() {
   const config = await scanClaudeConfig();
   const sphereData = buildSphereData(config);

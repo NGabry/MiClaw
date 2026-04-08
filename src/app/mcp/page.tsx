@@ -4,6 +4,8 @@ import { ScopeBadge } from "@/components/Badge";
 import { PageHeader } from "@/components/PageHeader";
 import { PageWrapper } from "@/components/PageWrapper";
 
+export const dynamic = "force-dynamic";
+
 export default async function McpPage() {
   const config = await scanClaudeConfig();
 

@@ -6,6 +6,8 @@ import { ScopeHeader } from "@/components/ScopeHeader";
 import { RuleCard } from "@/components/RuleCard";
 import type { Scope } from "@/lib/types";
 
+export const dynamic = "force-dynamic";
+
 export default async function RulesPage() {
   const config = await scanClaudeConfig();
 

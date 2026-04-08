@@ -4,6 +4,8 @@ import { PageHeader } from "@/components/PageHeader";
 import { PageWrapper } from "@/components/PageWrapper";
 import { ScopeHeader } from "@/components/ScopeHeader";
 
+export const dynamic = "force-dynamic";
+
 export default async function CommandsPage() {
   const config = await scanClaudeConfig();
 

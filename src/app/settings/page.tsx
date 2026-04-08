@@ -7,6 +7,8 @@ import { KeybindingsDisplay } from "@/components/KeybindingsDisplay";
 import { SettingsPriorityChain } from "@/components/SettingsPriorityChain";
 import { ScopeHeader } from "@/components/ScopeHeader";
 
+export const dynamic = "force-dynamic";
+
 export default async function SettingsPage() {
   const config = await scanClaudeConfig();
   const globalEntries = Object.entries(config.globalSettings.raw);
