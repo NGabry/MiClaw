@@ -2,26 +2,22 @@
 
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import type { ActiveSession } from "@/lib/sessionScanner";
-import { Terminal, Eye, Plus, Clock, GitBranch, Bot, Skull, ExternalLink } from "lucide-react";
-import { TerminalMirror } from "./TerminalMirror";
-import { MiclawTerminal, disposeTerminal } from "./MiclawTerminal";
-import type { MiclawSession } from "@/lib/miclawSessions";
-
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
-interface MiclawSessionWithStatus extends MiclawSession {
-  alive: boolean;
-  activity?: string;
-  costUSD?: number;
-  inputTokens?: number;
-  outputTokens?: number;
-}
-
-type TabItem =
-  | { type: "miclaw"; session: MiclawSessionWithStatus }
-  | { type: "detected"; session: ActiveSession };
+import { disposeTerminal } from "./MiclawTerminal";
+import type { PaneLayout } from "@/lib/paneTypes";
+import {
+  collectLeaves,
+  defaultLayout,
+  loadLayout,
+  reconcileTabs,
+  saveLayout,
+  splitLeaf,
+  removeLeaf,
+  moveTab,
+  updateRatio,
+  findLeaf,
+} from "@/lib/paneUtils";
+import { PaneCtx, type PaneContextValue, type TabItem, type MiclawSessionWithStatus } from "@/lib/paneContext";
+import { PaneTree } from "./PaneTree";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -29,463 +25,14 @@ type TabItem =
 
 const DETECTED_POLL_INTERVAL = 7000;
 const MICLAW_POLL_INTERVAL = 3000;
+const SAVE_DEBOUNCE_MS = 300;
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-function formatDuration(startedAt: number): string {
-  const ms = Date.now() - startedAt;
-  const secs = Math.floor(ms / 1000);
-  if (secs < 60) return `${secs}s`;
-  const mins = Math.floor(secs / 60);
-  if (mins < 60) return `${mins}m`;
-  const hours = Math.floor(mins / 60);
-  return `${hours}h ${mins % 60}m`;
-}
-
-function tabId(item: TabItem): string {
+function tabIdFromItem(item: TabItem): string {
   return item.type === "miclaw" ? item.session.id : `detected-${item.session.pid}`;
-}
-
-function tabName(item: TabItem): string {
-  if (item.type === "miclaw") {
-    const s = item.session;
-    return s.alive ? s.displayName : `${s.displayName} (idle)`;
-  }
-  const s = item.session;
-  return s.title ?? s.name ?? s.projectName;
-}
-
-function isTabAlive(item: TabItem): boolean {
-  return item.type === "miclaw" ? item.session.alive : item.session.isAlive;
-}
-
-function tabTurnState(item: TabItem): "idle" | "working" | "needs_input" {
-  if (item.type === "detected") {
-    return item.session.turnState;
-  }
-  if (item.type === "miclaw") {
-    // MiClaw sessions: PTY activity is the most responsive signal
-    if (item.session.activity === "producing_output") return "working";
-  }
-  return "idle";
-}
-
-function formatCost(usd: number): string {
-  if (usd < 0.01) return `$${usd.toFixed(4)}`;
-  if (usd < 1) return `$${usd.toFixed(2)}`;
-  return `$${usd.toFixed(2)}`;
-}
-
-function formatTokens(n: number): string {
-  if (n < 1000) return `${n}`;
-  if (n < 1_000_000) return `${(n / 1000).toFixed(1)}k`;
-  return `${(n / 1_000_000).toFixed(1)}M`;
-}
-
-// ---------------------------------------------------------------------------
-// StatusDot
-// ---------------------------------------------------------------------------
-
-function StatusDot({ turnState, isAlive, size = "normal" }: {
-  turnState: "idle" | "working" | "needs_input";
-  isAlive: boolean;
-  size?: "small" | "normal";
-}) {
-  const dim = size === "small" ? "w-2 h-2" : "w-2.5 h-2.5";
-  if (!isAlive) return <span className={`${dim} rounded-full bg-text-dim inline-block shrink-0`} title="Dead" />;
-  if (turnState === "needs_input") return <span className={`${dim} rounded-full bg-yellow-500 animate-pulse inline-block shrink-0`} title="Needs input" />;
-  if (turnState === "working") return <span className={`${dim} rounded-full bg-cyan-400 animate-pulse inline-block shrink-0`} title="Working" />;
-  return <span className={`${dim} rounded-full bg-green-500 inline-block shrink-0`} title="Idle" />;
-}
-
-// ---------------------------------------------------------------------------
-// Tab button
-// ---------------------------------------------------------------------------
-
-function Tab({ item, active, index, onClick }: {
-  item: TabItem;
-  active: boolean;
-  index: number;
-  onClick: () => void;
-}) {
-  const alive = isTabAlive(item);
-  const isMiclaw = item.type === "miclaw";
-
-  return (
-    <button
-      onClick={onClick}
-      title={`${tabName(item)}${index < 9 ? ` (Shift+Space ${index + 1})` : ""}`}
-      className={[
-        "flex items-center gap-2.5 px-4 py-3 text-sm font-mono whitespace-nowrap shrink-0 border-b-2 transition-colors",
-        active
-          ? "border-accent text-text bg-surface-raised/40"
-          : "border-transparent hover:bg-surface-hover/30",
-        alive ? "" : "opacity-40",
-        isMiclaw ? "text-text" : "text-text-muted",
-      ].join(" ")}
-    >
-      <StatusDot
-        turnState={tabTurnState(item)}
-        isAlive={alive}
-        size="small"
-      />
-      {isMiclaw ? <Terminal size={13} /> : <Eye size={13} />}
-      <span className="max-w-[180px] truncate">{tabName(item)}</span>
-      {index < 9 && (
-        <span className="text-[10px] text-text-dim/40 ml-0.5">{index + 1}</span>
-      )}
-    </button>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Detected session content (read-only)
-// ---------------------------------------------------------------------------
-
-function DetectedSessionContent({ session, onAdopt, onKill }: {
-  session: ActiveSession;
-  onAdopt: () => void;
-  onKill: () => void;
-}) {
-  const shortPath = session.cwd.replace(/^\/Users\/[^/]+/, "~");
-
-  return (
-    <div className="flex flex-col h-full">
-      {/* Top banner */}
-      <div className="shrink-0 px-4 py-3 border-b border-border bg-surface-raised/30">
-        <div className="flex items-center justify-between gap-4">
-          <div className="flex items-center gap-3 min-w-0">
-            <StatusDot
-              turnState={session.turnState}
-              isAlive={session.isAlive}
-            />
-            <div className="min-w-0">
-              <p className="text-sm font-mono font-medium text-text truncate">
-                {session.title ?? session.name ?? session.projectName}
-              </p>
-              <div className="flex items-center gap-3 text-[11px] font-mono text-text-dim mt-0.5">
-                <span>{shortPath}</span>
-                {session.gitBranch && (
-                  <span className="flex items-center gap-1">
-                    <GitBranch size={10} />
-                    {session.gitBranch}
-                  </span>
-                )}
-                {session.agent && (
-                  <span className="flex items-center gap-1">
-                    <Bot size={10} />
-                    {session.agent}
-                  </span>
-                )}
-                {session.startedAt > 0 && (
-                  <span className="flex items-center gap-1">
-                    <Clock size={10} />
-                    {formatDuration(session.startedAt)}
-                  </span>
-                )}
-                <span>PID {session.pid}</span>
-              </div>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2 shrink-0">
-            {session.isAlive && (
-              <button
-                onClick={() => {
-                  fetch("/api/sessions/focus", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ pid: session.pid }),
-                  });
-                }}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-sm border border-border text-xs font-mono text-text-muted hover:text-text hover:border-text-dim/30 transition-colors"
-                title="Jump to Terminal.app (O)"
-              >
-                <ExternalLink size={12} />
-                Terminal
-              </button>
-            )}
-            {session.isAlive && (
-              <button
-                onClick={onAdopt}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-sm bg-accent/10 border border-accent/30 text-xs font-mono text-accent hover:bg-accent/20 transition-colors"
-                title="Adopt into MiClaw (a)"
-              >
-                <Terminal size={12} />
-                Adopt
-              </button>
-            )}
-            {session.isAlive && (
-              <button
-                onClick={onKill}
-                className="p-1.5 rounded-sm text-text-dim hover:text-red-400 hover:bg-surface-hover transition-colors"
-                title="Kill session (X)"
-              >
-                <Skull size={14} />
-              </button>
-            )}
-          </div>
-        </div>
-
-        {/* Needs input banner */}
-        {session.isAlive && session.turnState === "needs_input" && (
-          <div className="flex items-center gap-2 mt-2 py-1.5 px-3 rounded-sm bg-yellow-500/10 border border-yellow-500/20">
-            <span className="w-2 h-2 rounded-full bg-yellow-500 animate-pulse shrink-0" />
-            <p className="text-[11px] font-mono text-yellow-500/80">
-              {session.waitingFor
-                ? `needs input: ${session.waitingFor}`
-                : "Session needs input -- Adopt for interactive control"}
-            </p>
-          </div>
-        )}
-
-        {/* Read-only notice */}
-        <p className="text-[10px] font-mono text-text-dim mt-2">
-          Read-only mirror of a Terminal.app session. Adopt to get full interactive control.
-        </p>
-      </div>
-
-      {/* Terminal mirror fills remaining space */}
-      <div className="flex-1 min-h-0 overflow-hidden">
-        <TerminalMirror pid={session.pid} fillHeight />
-      </div>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// MiClaw session content (interactive terminal)
-// ---------------------------------------------------------------------------
-
-function MiclawSessionContent({ session, onKill }: {
-  session: MiclawSessionWithStatus;
-  onKill: () => void;
-}) {
-  return (
-    <div className="flex flex-col h-full">
-      {/* Minimal top bar -- glassy look */}
-      <div className="shrink-0 flex items-center justify-between px-4 py-2 border-b border-white/[0.04] bg-white/[0.03] backdrop-blur-sm">
-        <div className="flex items-center gap-3 text-[11px] font-mono text-text-dim">
-          <StatusDot
-            turnState={session.activity === "producing_output" ? "working" : "idle"}
-            isAlive={session.alive}
-            size="small"
-          />
-          <span className="text-text text-xs font-medium">{session.displayName}</span>
-          <span>{session.cwd.replace(/^\/Users\/[^/]+/, "~")}</span>
-          {session.created > 0 && (
-            <span className="flex items-center gap-1">
-              <Clock size={10} />
-              {formatDuration(session.created)}
-            </span>
-          )}
-          {session.costUSD != null && session.costUSD > 0 && (
-            <span className="text-text-muted">{formatCost(session.costUSD)}</span>
-          )}
-          {session.inputTokens != null && session.inputTokens > 0 && (
-            <span className="text-text-dim">
-              {formatTokens(session.inputTokens)} in / {formatTokens(session.outputTokens ?? 0)} out
-            </span>
-          )}
-          {session.claudeSessionId && (
-            <span className="text-text-dim/50">{session.claudeSessionId}</span>
-          )}
-        </div>
-        <button
-          onClick={onKill}
-          className="p-1.5 rounded-sm text-text-dim hover:text-red-400 hover:bg-surface-hover transition-colors"
-          title="Kill session (X)"
-        >
-          <Skull size={14} />
-        </button>
-      </div>
-
-      {/* Resume banner */}
-      {!session.alive && (
-        <div className="shrink-0 flex items-center gap-2 mx-4 mt-2 py-2 px-3 rounded-sm bg-accent/10 border border-accent/20">
-          <span className="text-[11px] font-mono text-accent">Session will resume with --resume on connection</span>
-        </div>
-      )}
-
-      {/* Terminal fills remaining space */}
-      <div
-        className="flex-1 min-h-0 overflow-hidden p-3"
-        data-miclaw-session={session.id}
-      >
-        <MiclawTerminal
-          sessionId={session.id}
-          cwd={session.cwd}
-          name={session.displayName}
-          resumeId={!session.alive ? session.claudeSessionId : undefined}
-          permissionMode={session.permissionMode}
-          model={session.model}
-          allowedTools={session.allowedTools}
-          appendSystemPrompt={session.appendSystemPrompt}
-          worktree={session.worktree}
-        />
-      </div>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// New Session form
-// ---------------------------------------------------------------------------
-
-function NewSessionForm({ onCreate, onCancel }: {
-  onCreate: (name: string, cwd: string, opts?: {
-    permissionMode?: string;
-    model?: string;
-    allowedTools?: string;
-    appendSystemPrompt?: string;
-    worktree?: boolean;
-  }) => void;
-  onCancel: () => void;
-}) {
-  const [name, setName] = useState("");
-  const [cwd, setCwd] = useState("~/Desktop");
-  const [creating, setCreating] = useState(false);
-  const [showAdvanced, setShowAdvanced] = useState(false);
-  const [permissionMode, setPermissionMode] = useState("");
-  const [model, setModel] = useState("");
-  const [allowedTools, setAllowedTools] = useState("");
-  const [appendSystemPrompt, setAppendSystemPrompt] = useState("");
-  const [worktree, setWorktree] = useState(false);
-
-  async function handleCreate() {
-    setCreating(true);
-    onCreate(name, cwd, {
-      permissionMode: permissionMode || undefined,
-      model: model || undefined,
-      allowedTools: allowedTools || undefined,
-      appendSystemPrompt: appendSystemPrompt || undefined,
-      worktree: worktree || undefined,
-    });
-  }
-
-  const inputClass = "w-full bg-transparent border border-border rounded-sm px-3 py-2 text-xs font-mono text-text placeholder:text-text-dim/40 outline-none focus:border-accent/40";
-  const labelClass = "text-[10px] font-mono text-text-dim uppercase tracking-wider block mb-1";
-  const selectClass = "w-full bg-transparent border border-border rounded-sm px-3 py-2 text-xs font-mono text-text outline-none focus:border-accent/40 [&>option]:bg-[#353430] [&>option]:text-text";
-
-  return (
-    <div className="flex items-center justify-center h-full">
-      <div className="w-full max-w-md p-6 border border-border rounded-sm bg-surface-raised/50">
-        <h2 className="text-sm font-mono font-medium text-text mb-4">New MiClaw Session</h2>
-        <div className="space-y-3">
-          <div>
-            <label className={labelClass}>Name (optional)</label>
-            <input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="my-project"
-              autoFocus
-              className={inputClass}
-              onKeyDown={(e) => { if (e.key === "Enter") handleCreate(); if (e.key === "Escape") onCancel(); }}
-            />
-          </div>
-          <div>
-            <label className={labelClass}>Working Directory</label>
-            <input
-              value={cwd}
-              onChange={(e) => setCwd(e.target.value)}
-              placeholder="~/Desktop"
-              className={inputClass}
-              onKeyDown={(e) => { if (e.key === "Enter") handleCreate(); if (e.key === "Escape") onCancel(); }}
-            />
-          </div>
-
-          {/* Advanced Options */}
-          <div className="pt-1">
-            <button
-              type="button"
-              onClick={() => setShowAdvanced(!showAdvanced)}
-              className="text-[10px] font-mono text-text-dim uppercase tracking-wider hover:text-accent transition-colors"
-            >
-              {showAdvanced ? "- Advanced Options" : "+ Advanced Options"}
-            </button>
-          </div>
-
-          {showAdvanced && (
-            <div className="space-y-3 pt-1 border-t border-border">
-              <div>
-                <label className={labelClass}>Permission Mode</label>
-                <select
-                  value={permissionMode}
-                  onChange={(e) => setPermissionMode(e.target.value)}
-                  className={selectClass}
-                >
-                  <option value="">default</option>
-                  <option value="acceptEdits">acceptEdits</option>
-                  <option value="plan">plan</option>
-                  <option value="bypassPermissions">Dangerously Skip Permissions</option>
-                </select>
-              </div>
-              <div>
-                <label className={labelClass}>Model</label>
-                <select
-                  value={model}
-                  onChange={(e) => setModel(e.target.value)}
-                  className={selectClass}
-                >
-                  <option value="">sonnet (default)</option>
-                  <option value="opus">opus</option>
-                  <option value="haiku">haiku</option>
-                </select>
-              </div>
-              <div>
-                <label className={labelClass}>Allowed Tools</label>
-                <input
-                  value={allowedTools}
-                  onChange={(e) => setAllowedTools(e.target.value)}
-                  placeholder='Bash(git:*) Edit'
-                  className={inputClass}
-                />
-              </div>
-              <div>
-                <label className={labelClass}>Append System Prompt</label>
-                <input
-                  value={appendSystemPrompt}
-                  onChange={(e) => setAppendSystemPrompt(e.target.value)}
-                  placeholder="Additional instructions..."
-                  className={inputClass}
-                />
-              </div>
-              <div className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  id="worktree-checkbox"
-                  checked={worktree}
-                  onChange={(e) => setWorktree(e.target.checked)}
-                  className="accent-[#d97757]"
-                />
-                <label htmlFor="worktree-checkbox" className={labelClass + " mb-0"}>
-                  Worktree (--worktree)
-                </label>
-              </div>
-            </div>
-          )}
-
-          <div className="flex gap-2 pt-1">
-            <button
-              onClick={handleCreate}
-              disabled={creating}
-              className="flex-1 px-4 py-2 rounded-sm bg-accent/10 border border-accent/30 text-xs font-mono text-accent hover:bg-accent/20 transition-colors disabled:opacity-40"
-            >
-              {creating ? "Launching..." : "Launch"}
-            </button>
-            <button
-              onClick={onCancel}
-              className="px-4 py-2 rounded-sm border border-border text-xs font-mono text-text-muted hover:text-text transition-colors"
-            >
-              Cancel
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
 }
 
 // ---------------------------------------------------------------------------
@@ -496,9 +43,22 @@ export function SessionsView() {
   const [sessions, setSessions] = useState<ActiveSession[]>([]);
   const [tmuxSessions, setTmuxSessions] = useState<MiclawSessionWithStatus[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeTabId, setActiveTabId] = useState<string | null>(null);
-  const [showNewForm, setShowNewForm] = useState(false);
+  const [paneLayout, setPaneLayout] = useState<PaneLayout | null>(null);
   const [commandMode, setCommandMode] = useState(false);
+  const [newFormPanes, setNewFormPanes] = useState<Set<string>>(new Set());
+
+  // Debounced save to localStorage
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const persistLayout = useCallback((layout: PaneLayout) => {
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(() => saveLayout(layout), SAVE_DEBOUNCE_MS);
+  }, []);
+
+  // Wrapper that sets state and triggers persistence
+  const updateLayout = useCallback((layout: PaneLayout) => {
+    setPaneLayout(layout);
+    persistLayout(layout);
+  }, [persistLayout]);
 
   // ---- Data fetching ----
 
@@ -546,23 +106,44 @@ export function SessionsView() {
     ...sessions.map((s): TabItem => ({ type: "detected", session: s })),
   ], [tmuxSessions, sessions]);
 
-  const allTabsRef = useRef(allTabs);
-  allTabsRef.current = allTabs;
+  const allTabIds = useMemo(() => allTabs.map(tabIdFromItem), [allTabs]);
 
-  // Auto-select first tab if current selection is gone
+  // ---- Initialize layout from localStorage or default ----
+
   useEffect(() => {
-    if (showNewForm) return;
-    if (allTabs.length === 0) {
-      setActiveTabId(null);
-      return;
+    if (paneLayout !== null) return;
+    const saved = loadLayout();
+    if (saved) {
+      setPaneLayout(saved);
+    } else {
+      setPaneLayout(defaultLayout(allTabIds));
     }
-    const exists = activeTabId && allTabs.some((t) => tabId(t) === activeTabId);
-    if (!exists) {
-      setActiveTabId(tabId(allTabs[0]));
-    }
-  }, [allTabs, activeTabId, showNewForm]);
+  }, [allTabIds, paneLayout]);
 
-  const activeTab = allTabs.find((t) => tabId(t) === activeTabId) ?? null;
+  // ---- Reconcile tabs whenever allTabIds changes ----
+
+  useEffect(() => {
+    if (!paneLayout) return;
+    const reconciled = reconcileTabs(paneLayout, allTabIds);
+    // Only update if something actually changed
+    if (JSON.stringify(reconciled) !== JSON.stringify(paneLayout)) {
+      updateLayout(reconciled);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [allTabIds]);
+
+  // ---- Pane count ----
+
+  const totalPaneCount = useMemo(
+    () => (paneLayout ? collectLeaves(paneLayout.root).length : 1),
+    [paneLayout],
+  );
+
+  // Keep a ref of sorted leaves for keyboard nav
+  const leavesRef = useRef<ReturnType<typeof collectLeaves>>([]);
+  useEffect(() => {
+    if (paneLayout) leavesRef.current = collectLeaves(paneLayout.root);
+  }, [paneLayout]);
 
   // ---- Actions ----
 
@@ -603,17 +184,15 @@ export function SessionsView() {
         }),
       });
       if (res.ok) {
-        const newSession = await res.json();
+        await res.json();
         await fetchTmuxSessions();
-        // Kill original detected session
         await fetch("/api/sessions", {
           method: "DELETE",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ pid: detected.pid }),
         });
         await fetchSessions();
-        // Switch to the new MiClaw tab
-        if (newSession?.id) setActiveTabId(newSession.id);
+        // The new tab will be added by reconcileTabs on next allTabIds update
       }
     } catch { /* silent */ }
   }
@@ -640,13 +219,140 @@ export function SessionsView() {
         }),
       });
       if (res.ok) {
-        const newSession = await res.json();
+        await res.json();
         await fetchTmuxSessions();
-        setShowNewForm(false);
-        if (newSession?.id) setActiveTabId(newSession.id);
+        // Close new form for all panes
+        setNewFormPanes(new Set());
       }
     } catch { /* silent */ }
   }
+
+  // ---- Layout mutation callbacks ----
+
+  const splitPane = useCallback((paneId: string, direction: "horizontal" | "vertical") => {
+    if (!paneLayout) return;
+    updateLayout(splitLeaf(paneLayout, paneId, direction));
+  }, [paneLayout, updateLayout]);
+
+  const closePane = useCallback((paneId: string) => {
+    if (!paneLayout) return;
+    const result = removeLeaf(paneLayout, paneId);
+    if (result) updateLayout(result);
+  }, [paneLayout, updateLayout]);
+
+  const focusPane = useCallback((paneId: string) => {
+    if (!paneLayout || paneLayout.focusedPaneId === paneId) return;
+    updateLayout({ ...paneLayout, focusedPaneId: paneId });
+  }, [paneLayout, updateLayout]);
+
+  const setActiveTab = useCallback((paneId: string, tabId: string) => {
+    if (!paneLayout) return;
+    // Use mapNode-like approach via a fresh object
+    function updateNode(node: import("@/lib/paneTypes").PaneNode): import("@/lib/paneTypes").PaneNode {
+      if (node.type === "leaf" && node.id === paneId) {
+        return { ...node, activeTabId: tabId };
+      }
+      if (node.type === "split") {
+        return {
+          ...node,
+          children: [updateNode(node.children[0]), updateNode(node.children[1])],
+        };
+      }
+      return node;
+    }
+    updateLayout({ root: updateNode(paneLayout.root), focusedPaneId: paneLayout.focusedPaneId });
+  }, [paneLayout, updateLayout]);
+
+  const reorderTabs = useCallback((paneId: string, tabIds: string[]) => {
+    if (!paneLayout) return;
+    function updateNode(node: import("@/lib/paneTypes").PaneNode): import("@/lib/paneTypes").PaneNode {
+      if (node.type === "leaf" && node.id === paneId) {
+        return { ...node, tabIds };
+      }
+      if (node.type === "split") {
+        return {
+          ...node,
+          children: [updateNode(node.children[0]), updateNode(node.children[1])],
+        };
+      }
+      return node;
+    }
+    updateLayout({ root: updateNode(paneLayout.root), focusedPaneId: paneLayout.focusedPaneId });
+  }, [paneLayout, updateLayout]);
+
+  const moveTabToPane = useCallback((tabId: string, fromPaneId: string, toPaneId: string) => {
+    if (!paneLayout) return;
+    updateLayout(moveTab(paneLayout, tabId, fromPaneId, toPaneId));
+  }, [paneLayout, updateLayout]);
+
+  const dropTabOnEdge = useCallback((
+    tabId: string,
+    fromPaneId: string,
+    toPaneId: string,
+    edge: "left" | "right" | "top" | "bottom",
+  ) => {
+    if (!paneLayout) return;
+    // Split the target pane in the appropriate direction
+    const direction = (edge === "left" || edge === "right") ? "horizontal" : "vertical";
+    let newLayout = splitLeaf(paneLayout, toPaneId, direction);
+
+    // Find the two new leaves from the split
+    const newLeaves = collectLeaves(newLayout.root);
+    // The split creates [original, newLeaf]. The original keeps its id.
+    const newLeaf = newLeaves.find((l) => l.id !== toPaneId && !leavesRef.current.some((ol) => ol.id === l.id));
+
+    if (!newLeaf) return;
+
+    // Move the tab to the new leaf
+    newLayout = moveTab(newLayout, tabId, fromPaneId, newLeaf.id);
+
+    // If edge is "left" or "top", we need to swap the children in the parent split
+    if (edge === "left" || edge === "top") {
+      function swapChildren(node: import("@/lib/paneTypes").PaneNode): import("@/lib/paneTypes").PaneNode {
+        if (node.type === "split") {
+          // Check if one of the direct children contains our new leaf
+          const leftLeaves = collectLeaves(node.children[0]);
+          const rightLeaves = collectLeaves(node.children[1]);
+          const newInLeft = leftLeaves.some((l) => l.id === newLeaf!.id);
+          const origInRight = rightLeaves.some((l) => l.id === toPaneId);
+          if (newInLeft && origInRight) {
+            // Already in correct position (new is first), no swap needed
+            return node;
+          }
+          const origInLeft = leftLeaves.some((l) => l.id === toPaneId);
+          const newInRight = rightLeaves.some((l) => l.id === newLeaf!.id);
+          if (origInLeft && newInRight) {
+            return { ...node, children: [node.children[1], node.children[0]] };
+          }
+          return {
+            ...node,
+            children: [swapChildren(node.children[0]), swapChildren(node.children[1])],
+          };
+        }
+        return node;
+      }
+      newLayout = { ...newLayout, root: swapChildren(newLayout.root) };
+    }
+
+    updateLayout(newLayout);
+  }, [paneLayout, updateLayout]);
+
+  const updateSplitRatio = useCallback((splitId: string, ratio: number) => {
+    if (!paneLayout) return;
+    updateLayout(updateRatio(paneLayout, splitId, ratio));
+  }, [paneLayout, updateLayout]);
+
+  // ---- New form state (per-pane) ----
+
+  const showNewFormFn = useCallback((paneId: string) => newFormPanes.has(paneId), [newFormPanes]);
+  const setShowNewFormFn = useCallback((paneId: string, show: boolean) => {
+    setNewFormPanes((prev) => {
+      const next = new Set(prev);
+      if (show) next.add(paneId);
+      else next.delete(paneId);
+      return next;
+    });
+  }, []);
 
   // ---- Command mode (Shift+Space leader key) ----
 
@@ -654,41 +360,109 @@ export function SessionsView() {
     setCommandMode(true);
   }
 
+  const paneLayoutRef = useRef(paneLayout);
+  paneLayoutRef.current = paneLayout;
+  const allTabsRef = useRef(allTabs);
+  allTabsRef.current = allTabs;
+
   function executeCommand(key: string) {
     if (key === "Escape" || key === "Enter") {
       setCommandMode(false);
+      // Focus the terminal in the selected pane so keystrokes go there
+      if (key === "Enter") {
+        const layout = paneLayoutRef.current;
+        if (layout) {
+          const leaf = findLeaf(layout.root, layout.focusedPaneId);
+          if (leaf?.activeTabId) {
+            // Find the terminal textarea in the active session's container
+            const el = document.querySelector(
+              `[data-miclaw-session="${leaf.activeTabId}"] textarea`,
+            ) as HTMLElement | null;
+            el?.focus();
+          }
+        }
+      }
       return;
     }
 
-    const tabs = allTabsRef.current;
-    const currentIdx = tabs.findIndex((t) => tabId(t) === activeTabId);
-    const currentTab = currentIdx >= 0 ? tabs[currentIdx] : null;
+    // Read from refs to always get fresh state -- useCallback wrappers
+    // go stale between rapid keystrokes in command mode.
+    const layout = paneLayoutRef.current;
+    if (!layout) return;
 
-    // Number keys 1-9 to jump to tab
+    const focusedLeaf = findLeaf(layout.root, layout.focusedPaneId);
+    if (!focusedLeaf) return;
+
+    const paneTabs = allTabsRef.current.filter(
+      (t) => focusedLeaf.tabIds.includes(tabIdFromItem(t)),
+    );
+    const currentIdx = paneTabs.findIndex(
+      (t) => tabIdFromItem(t) === focusedLeaf.activeTabId,
+    );
+    const currentTab = currentIdx >= 0 ? paneTabs[currentIdx] : null;
+
+    // Helper: directly update layout from ref (avoids stale closures)
+    function commitLayout(newLayout: PaneLayout) {
+      setPaneLayout(newLayout);
+      paneLayoutRef.current = newLayout;
+      persistLayout(newLayout);
+    }
+
+    function setTab(paneId: string, tabId: string) {
+      function updateNode(node: import("@/lib/paneTypes").PaneNode): import("@/lib/paneTypes").PaneNode {
+        if (node.type === "leaf" && node.id === paneId) return { ...node, activeTabId: tabId };
+        if (node.type === "split") return { ...node, children: [updateNode(node.children[0]), updateNode(node.children[1])] };
+        return node;
+      }
+      const l = paneLayoutRef.current!;
+      commitLayout({ root: updateNode(l.root), focusedPaneId: l.focusedPaneId });
+    }
+
+    function setFocus(paneId: string) {
+      const l = paneLayoutRef.current!;
+      commitLayout({ ...l, focusedPaneId: paneId });
+    }
+
+    // Number keys 1-9: jump to tab within focused pane
     if (key >= "1" && key <= "9") {
       const idx = parseInt(key, 10) - 1;
-      if (idx < tabs.length) {
-        setShowNewForm(false);
-        setActiveTabId(tabId(tabs[idx]));
+      if (idx < paneTabs.length) {
+        setShowNewFormFn(layout.focusedPaneId, false);
+        setTab(layout.focusedPaneId, tabIdFromItem(paneTabs[idx]));
       }
       return;
     }
 
+    const leaves = collectLeaves(paneLayoutRef.current!.root);
+    const focusIdx = leaves.findIndex((l) => l.id === paneLayoutRef.current!.focusedPaneId);
+
     switch (key) {
-      case "j":
-      case "]": {
-        if (tabs.length === 0) break;
-        const next = currentIdx < tabs.length - 1 ? currentIdx + 1 : 0;
-        setShowNewForm(false);
-        setActiveTabId(tabId(tabs[next]));
+      case "h":
+      case "[": {
+        if (paneTabs.length === 0) break;
+        const prev = currentIdx > 0 ? currentIdx - 1 : paneTabs.length - 1;
+        setShowNewFormFn(layout.focusedPaneId, false);
+        setTab(layout.focusedPaneId, tabIdFromItem(paneTabs[prev]));
         break;
       }
-      case "k":
-      case "[": {
-        if (tabs.length === 0) break;
-        const prev = currentIdx > 0 ? currentIdx - 1 : tabs.length - 1;
-        setShowNewForm(false);
-        setActiveTabId(tabId(tabs[prev]));
+      case "l":
+      case "]": {
+        if (paneTabs.length === 0) break;
+        const next = currentIdx < paneTabs.length - 1 ? currentIdx + 1 : 0;
+        setShowNewFormFn(layout.focusedPaneId, false);
+        setTab(layout.focusedPaneId, tabIdFromItem(paneTabs[next]));
+        break;
+      }
+      case "j": {
+        if (leaves.length <= 1) break;
+        const next = focusIdx < leaves.length - 1 ? focusIdx + 1 : 0;
+        setFocus(leaves[next].id);
+        break;
+      }
+      case "k": {
+        if (leaves.length <= 1) break;
+        const prev = focusIdx > 0 ? focusIdx - 1 : leaves.length - 1;
+        setFocus(leaves[prev].id);
         break;
       }
       case "X": {
@@ -711,7 +485,7 @@ export function SessionsView() {
         break;
       }
       case "n": {
-        setShowNewForm(true);
+        setShowNewFormFn(layout.focusedPaneId, true);
         break;
       }
     }
@@ -727,19 +501,12 @@ export function SessionsView() {
   // Global keyboard handler
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
-      // Command mode: capture the next key as a command
       if (commandMode) {
         e.preventDefault();
         e.stopPropagation();
         executeCommand(e.key);
         return;
       }
-
-      const el = document.activeElement;
-      const isInputFocused = el instanceof HTMLInputElement
-        || el instanceof HTMLTextAreaElement
-        || el?.closest(".cm-editor") !== null
-        || el?.closest(".xterm") !== null;
 
       // Shift+Escape triggers command mode from anywhere
       if (e.key === "Escape" && e.shiftKey) {
@@ -748,219 +515,126 @@ export function SessionsView() {
         return;
       }
 
-      // When input is focused, don't intercept anything else
-      if (isInputFocused) return;
+      const layout = paneLayoutRef.current;
+      if (!layout) return;
 
-      // When NOT in a terminal/input, bare keys work directly (same commands)
-      const tabs = allTabsRef.current;
-      const currentIdx = tabs.findIndex((t) => tabId(t) === activeTabId);
-      const currentTab = currentIdx >= 0 ? tabs[currentIdx] : null;
-
-      if (e.key >= "1" && e.key <= "9") {
-        const idx = parseInt(e.key, 10) - 1;
-        if (idx < tabs.length) {
-          e.preventDefault();
-          setShowNewForm(false);
-          setActiveTabId(tabId(tabs[idx]));
+      // Alt+1-9: switch tabs within focused pane
+      if (e.altKey && e.code >= "Digit1" && e.code <= "Digit9") {
+        e.preventDefault();
+        e.stopPropagation();
+        const idx = parseInt(e.code.slice(5), 10) - 1;
+        const focusedLeaf = findLeaf(layout.root, layout.focusedPaneId);
+        if (!focusedLeaf) return;
+        const paneTabs = allTabsRef.current.filter(
+          (t) => focusedLeaf.tabIds.includes(tabIdFromItem(t)),
+        );
+        if (idx < paneTabs.length) {
+          setShowNewFormFn(layout.focusedPaneId, false);
+          setActiveTab(layout.focusedPaneId, tabIdFromItem(paneTabs[idx]));
         }
         return;
       }
 
-      switch (e.key) {
-        case "]":
-        case "j": {
-          e.preventDefault();
-          if (tabs.length === 0) break;
-          const next = currentIdx < tabs.length - 1 ? currentIdx + 1 : 0;
-          setShowNewForm(false);
-          setActiveTabId(tabId(tabs[next]));
-          break;
-        }
-        case "[":
-        case "k": {
-          e.preventDefault();
-          if (tabs.length === 0) break;
-          const prev = currentIdx > 0 ? currentIdx - 1 : tabs.length - 1;
-          setShowNewForm(false);
-          setActiveTabId(tabId(tabs[prev]));
-          break;
-        }
-        case "i": {
-          e.preventDefault();
-          if (currentTab?.type === "miclaw") {
-            const textarea = document.querySelector(`[data-miclaw-session="${currentTab.session.id}"] textarea`) as HTMLElement | null;
-            textarea?.focus();
-          }
-          break;
-        }
-        case "X": {
-          e.preventDefault();
-          if (currentTab?.type === "miclaw") handleKillMiclaw(currentTab.session.id);
-          else if (currentTab?.type === "detected" && currentTab.session.isAlive) handleKillDetected(currentTab.session.pid);
-          break;
-        }
-        case "O": {
-          e.preventDefault();
-          if (currentTab?.type === "detected" && currentTab.session.isAlive) {
-            fetch("/api/sessions/focus", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ pid: currentTab.session.pid }),
-            });
-          }
-          break;
-        }
-        case "a": {
-          e.preventDefault();
-          if (currentTab?.type === "detected" && currentTab.session.isAlive) handleAdopt(currentTab.session);
-          break;
-        }
-        case "n": {
-          e.preventDefault();
-          setShowNewForm(true);
-          break;
-        }
-        case "Escape": {
-          e.preventDefault();
-          if (showNewForm) setShowNewForm(false);
-          break;
-        }
-      }
+      // All other shortcuts require explicit command mode (Shift+Esc).
+      // Bare-key shortcuts are disabled to prevent focus-loss from causing
+      // random command execution when typing in terminals.
     }
 
     document.addEventListener("keydown", handleKeyDown, true);
     return () => document.removeEventListener("keydown", handleKeyDown, true);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTabId, showNewForm, commandMode]);
+  }, [commandMode, newFormPanes]);
+
+  // ---- Context value ----
+
+  const ctxValue = useMemo<PaneContextValue | null>(() => {
+    if (!paneLayout) return null;
+    return {
+      layout: paneLayout,
+      allTabs,
+      focusedPaneId: paneLayout.focusedPaneId,
+      totalPaneCount,
+      splitPane,
+      closePane,
+      focusPane,
+      setActiveTab,
+      reorderTabs,
+      moveTabToPane,
+      dropTabOnEdge,
+      updateSplitRatio,
+      handleKillDetected,
+      handleKillMiclaw,
+      handleAdopt,
+      handleCreateSession,
+      showNewForm: showNewFormFn,
+      setShowNewForm: setShowNewFormFn,
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    paneLayout,
+    allTabs,
+    totalPaneCount,
+    splitPane,
+    closePane,
+    focusPane,
+    setActiveTab,
+    reorderTabs,
+    moveTabToPane,
+    dropTabOnEdge,
+    updateSplitRatio,
+    showNewFormFn,
+    setShowNewFormFn,
+  ]);
 
   // ---- Render ----
 
-  const miclawTabs = allTabs.filter((t) => t.type === "miclaw");
-  const detectedTabs = allTabs.filter((t) => t.type === "detected");
-  const aliveMiclaw = miclawTabs.filter((t) => isTabAlive(t)).length;
-  const aliveDetected = detectedTabs.filter((t) => isTabAlive(t)).length;
+  if (!paneLayout || !ctxValue) {
+    return (
+      <div className="flex items-center justify-center h-full">
+        <p className="text-sm font-mono text-text-dim">
+          {loading ? "Scanning sessions..." : "Initializing..."}
+        </p>
+      </div>
+    );
+  }
 
   return (
-    <div className="flex flex-col h-full relative">
-      {/* Tab bar */}
-      <div className="shrink-0 border-b border-border bg-surface/80 backdrop-blur-sm">
-        <div className="flex items-center">
-          <div className="flex items-center overflow-x-auto scrollbar-hide flex-1">
-            {/* MiClaw tabs */}
-            {miclawTabs.map((item, i) => (
-              <Tab
-                key={tabId(item)}
-                item={item}
-                active={!showNewForm && tabId(item) === activeTabId}
-                index={i}
-                onClick={() => { setShowNewForm(false); setActiveTabId(tabId(item)); }}
-              />
-            ))}
+    <PaneCtx.Provider value={ctxValue}>
+      <div className="flex flex-col h-full relative">
+        {/* Pane tree fills the main area */}
+        <div className="flex-1 min-h-0 overflow-hidden">
+          <PaneTree node={paneLayout.root} />
+        </div>
 
-            {/* Separator between groups (only if both exist) */}
-            {miclawTabs.length > 0 && detectedTabs.length > 0 && (
-              <div className="h-6 border-r border-border mx-2 shrink-0" />
-            )}
-
-            {/* Detected tabs */}
-            {detectedTabs.map((item, i) => (
-              <Tab
-                key={tabId(item)}
-                item={item}
-                active={!showNewForm && tabId(item) === activeTabId}
-                index={miclawTabs.length + i}
-                onClick={() => { setShowNewForm(false); setActiveTabId(tabId(item)); }}
-              />
-            ))}
-          </div>
-
-          {/* Right side: counts + new button */}
-          <div className="flex items-center gap-3 px-3 shrink-0 border-l border-border">
-            <span className="text-[10px] font-mono text-text-dim">
-              {loading
-                ? "..."
-                : `${aliveMiclaw + aliveDetected} active`}
-            </span>
-            <button
-              onClick={() => setShowNewForm(true)}
-              className={[
-                "flex items-center gap-1 px-2 py-1.5 rounded-sm text-xs font-mono transition-colors",
-                showNewForm
-                  ? "text-accent border border-accent/30 bg-accent/10"
-                  : "text-text-muted hover:text-accent border border-transparent hover:border-accent/20",
-              ].join(" ")}
-              title="New session (n)"
-            >
-              <Plus size={12} />
-            </button>
-          </div>
+        {/* Bottom bar: command mode or hint */}
+        <div className={[
+          "shrink-0 border-t px-4 py-2 transition-colors",
+          commandMode
+            ? "border-accent/40 bg-accent/5"
+            : "border-border bg-surface/80",
+        ].join(" ")}>
+          {commandMode ? (
+            <div className="flex items-center gap-6 text-[11px] font-mono">
+              <span className="text-accent font-medium shrink-0">COMMAND</span>
+              <div className="flex items-center gap-4 flex-wrap">
+                <span className="text-text-muted"><span className="text-text">1-9</span> tab</span>
+                <span className="text-text-muted"><span className="text-text">j/k</span> cycle tabs</span>
+                <span className="text-text-muted"><span className="text-text">h/l</span> cycle panes</span>
+                <span className="text-text-muted"><span className="text-text">n</span> new</span>
+                <span className="text-text-muted"><span className="text-text">a</span> adopt</span>
+                <span className="text-text-muted"><span className="text-text">X</span> kill</span>
+                <span className="text-text-muted"><span className="text-text">O</span> terminal</span>
+              </div>
+              <span className="text-text-dim ml-auto shrink-0">Esc to exit</span>
+            </div>
+          ) : (
+            <p className="text-[10px] font-mono text-text-dim text-center">
+              Shift+Esc for command mode
+              {totalPaneCount > 1 && " | h/l cycle panes"}
+            </p>
+          )}
         </div>
       </div>
-
-      {/* Tab content */}
-      <div className="flex-1 min-h-0 overflow-hidden">
-        {showNewForm ? (
-          <NewSessionForm
-            onCreate={handleCreateSession}
-            onCancel={() => setShowNewForm(false)}
-          />
-        ) : activeTab?.type === "miclaw" ? (
-          <MiclawSessionContent
-            key={activeTab.session.id}
-            session={activeTab.session}
-            onKill={() => handleKillMiclaw(activeTab.session.id)}
-          />
-        ) : activeTab?.type === "detected" ? (
-          <DetectedSessionContent
-            key={activeTab.session.pid}
-            session={activeTab.session}
-            onAdopt={() => handleAdopt(activeTab.session)}
-            onKill={() => handleKillDetected(activeTab.session.pid)}
-          />
-        ) : (
-          <div className="flex flex-col items-center justify-center h-full gap-4">
-            <p className="text-sm font-mono text-text-dim">
-              {loading ? "Scanning sessions..." : "No sessions detected"}
-            </p>
-            {!loading && (
-              <button
-                onClick={() => setShowNewForm(true)}
-                className="flex items-center gap-1.5 px-4 py-2 rounded-sm bg-accent/10 border border-accent/30 text-xs font-mono text-accent hover:bg-accent/20 transition-colors"
-              >
-                <Plus size={12} />
-                New Session
-              </button>
-            )}
-          </div>
-        )}
-      </div>
-
-      {/* Bottom bar: command mode or hint */}
-      <div className={[
-        "shrink-0 border-t px-4 py-2 transition-colors",
-        commandMode
-          ? "border-accent/40 bg-accent/5"
-          : "border-border bg-surface/80",
-      ].join(" ")}>
-        {commandMode ? (
-          <div className="flex items-center gap-6 text-[11px] font-mono">
-            <span className="text-accent font-medium shrink-0">COMMAND</span>
-            <div className="flex items-center gap-4 flex-wrap">
-              <span className="text-text-muted"><span className="text-text">1-9</span> tab</span>
-              <span className="text-text-muted"><span className="text-text">j/k</span> cycle</span>
-              <span className="text-text-muted"><span className="text-text">n</span> new</span>
-              <span className="text-text-muted"><span className="text-text">a</span> adopt</span>
-              <span className="text-text-muted"><span className="text-text">X</span> kill</span>
-              <span className="text-text-muted"><span className="text-text">O</span> terminal</span>
-            </div>
-            <span className="text-text-dim ml-auto shrink-0">Esc to exit</span>
-          </div>
-        ) : (
-          <p className="text-[10px] font-mono text-text-dim text-center">
-            Shift+Esc for command mode
-          </p>
-        )}
-      </div>
-    </div>
+    </PaneCtx.Provider>
   );
 }

@@ -190,39 +190,40 @@ async function readJsonlTail(sessionId: string): Promise<{
           const lastPrompt = extractField(tail, "lastPrompt");
           const recentMessages = extractRecentMessages(tail, 5);
 
-          // Compute turnState: scan backwards for the last message-bearing entry
+          // Compute turnState from the JSONL conversation state.
+          //
+          // Strategy: find the last ASSISTANT message (ignore user messages in
+          // the backward scan -- they can be task notifications that mask
+          // tool_use prompts). Then determine state:
+          //   - assistant with tool_use + no subsequent tool_result → needs_input
+          //   - assistant with tool_use + subsequent tool_result   → working
+          //   - assistant without tool_use                         → idle
+          //   - no assistant found, but user message exists         → working
           const lines = tail.split("\n").filter(Boolean);
           let turnState: "idle" | "working" | "needs_input" = "idle";
 
-          let lastMsgIdx = -1;
-          let lastMsgType: "assistant" | "user" | undefined;
+          let lastAssistantIdx = -1;
           let lastAssistantHasToolUse = false;
+          let hasUserMessageAfterAssistant = false;
 
+          // Step 1: Find the last assistant entry
           for (let i = lines.length - 1; i >= 0; i--) {
             try {
               const entry = JSON.parse(lines[i]);
               if (!entry.type || !entry.message) continue;
               if (entry.type === "assistant") {
-                lastMsgIdx = i;
-                lastMsgType = "assistant";
+                lastAssistantIdx = i;
                 const blocks = Array.isArray(entry.message.content) ? entry.message.content : [];
                 lastAssistantHasToolUse = blocks.some((b: { type: string }) => b.type === "tool_use");
-                break;
-              }
-              if (entry.type === "user") {
-                lastMsgIdx = i;
-                lastMsgType = "user";
                 break;
               }
             } catch { /* skip */ }
           }
 
-          if (lastMsgType === "user") {
-            turnState = "working";
-          } else if (lastMsgType === "assistant" && lastAssistantHasToolUse) {
-            // Scan forward for a tool_result after this assistant message
+          if (lastAssistantIdx >= 0 && lastAssistantHasToolUse) {
+            // Step 2: Scan forward from that assistant for a tool_result
             let foundToolResult = false;
-            for (let i = lastMsgIdx + 1; i < lines.length; i++) {
+            for (let i = lastAssistantIdx + 1; i < lines.length; i++) {
               try {
                 const entry = JSON.parse(lines[i]);
                 if (!entry.type || !entry.message) continue;
@@ -232,16 +233,44 @@ async function readJsonlTail(sessionId: string): Promise<{
                     foundToolResult = true;
                     break;
                   }
+                  // Non-tool-result user messages (task notifications, etc.)
+                  // do NOT count as a response to the tool call.
                 }
               } catch { /* skip */ }
             }
             turnState = foundToolResult ? "working" : "needs_input";
-          }
-          // else: assistant with no tool_use, or no messages found -> "idle"
-
-          // Recency override: if JSONL is actively being written, treat idle as working
-          if (turnState === "idle" && (Date.now() - stat.mtimeMs) < 3000) {
-            turnState = "working";
+          } else if (lastAssistantIdx >= 0 && !lastAssistantHasToolUse) {
+            // Last assistant message was plain text -- check if user sent
+            // a new prompt after it (meaning Claude should be responding)
+            for (let i = lastAssistantIdx + 1; i < lines.length; i++) {
+              try {
+                const entry = JSON.parse(lines[i]);
+                if (!entry.type || !entry.message) continue;
+                if (entry.type === "user") {
+                  const content = entry.message.content;
+                  // Only real user prompts (text blocks), not tool_results
+                  if (typeof content === "string" ||
+                      (Array.isArray(content) && content.some((b: { type: string }) => b.type === "text"))) {
+                    hasUserMessageAfterAssistant = true;
+                    break;
+                  }
+                }
+              } catch { /* skip */ }
+            }
+            turnState = hasUserMessageAfterAssistant ? "working" : "idle";
+          } else {
+            // No assistant message found -- check if there's any user message
+            // (session just started, user sent first prompt)
+            for (let i = lines.length - 1; i >= 0; i--) {
+              try {
+                const entry = JSON.parse(lines[i]);
+                if (!entry.type || !entry.message) continue;
+                if (entry.type === "user") {
+                  turnState = "working";
+                  break;
+                }
+              } catch { /* skip */ }
+            }
           }
 
           // Sum tokens from assistant message.usage fields

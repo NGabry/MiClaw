@@ -314,7 +314,8 @@ export function MiclawTerminal({ sessionId, cwd, resumeId, name, permissionMode,
       }
 
       const { terminal, fitAddon } = cached;
-      terminal.focus();
+      // Don't auto-focus: in a multi-pane layout, this would steal focus from
+      // whichever terminal the user is typing in. Focus happens on click instead.
 
       // Wait for renderer to initialize (double rAF)
       await new Promise<void>((r) =>

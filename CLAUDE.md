@@ -59,21 +59,27 @@ A visualization and editing dashboard for Claude Code configuration. Scans `~/.c
 - `src/components/OutputStyleCard.tsx` -- Output style configuration card.
 - `src/components/SettingsPriorityChain.tsx` -- Settings priority chain visualization.
 
-### Sessions feature (tabbed terminal dashboard)
-- `src/lib/sessionScanner.ts` -- Scans `~/.claude/sessions/` PID files and reads JSONL logs from `~/.claude/projects/` to extract session metadata (title, git branch, status). Uses mtime-based caching to skip unchanged JSONL reads.
+### Sessions feature (tiling terminal dashboard)
+- `src/lib/sessionScanner.ts` -- Scans `~/.claude/sessions/` PID files and reads JSONL logs from `~/.claude/projects/` to extract session metadata (title, git branch, turnState). Uses mtime-based caching. Computes `turnState: "idle" | "working" | "needs_input"` from the JSONL conversation state.
 - `src/lib/miclawSessions.ts` -- Manages MiClaw-owned sessions stored in `~/.claude/miclaw-sessions.json`.
-- `src/components/SessionsView.tsx` -- Client component: tab bar at top, full-height terminal content below. MiClaw tabs get interactive xterm terminals via PTY WebSocket. Detected tabs show read-only `TerminalMirror` with Adopt button. Command mode via `Shift+Esc` for keyboard navigation.
-- `src/components/MiclawTerminal.tsx` -- xterm.js terminal connected to a Python PTY server via WebSocket (port 3001). Terminal instances are cached globally and survive tab switches.
-- `src/components/TerminalMirror.tsx` -- Read-only terminal screen mirror for detected sessions. Polls `/api/sessions/screen`, strips prompt area, colorizes output.
-- `src/app/sessions/page.tsx` -- Sessions page (renders `SessionsView`).
-- `src/app/api/sessions/route.ts` -- GET returns detected sessions (filtered to exclude MiClaw-spawned PIDs); DELETE kills a session by PID.
+- `src/lib/paneTypes.ts` -- Type definitions for the tiling pane tree: `LeafPane`, `SplitPane`, `PaneNode`, `PaneLayout`.
+- `src/lib/paneUtils.ts` -- Pure functions for pane tree operations: `splitLeaf`, `removeLeaf`, `moveTab`, `updateRatio`, `reconcileTabs`, `saveLayout`/`loadLayout` (localStorage persistence).
+- `src/lib/paneContext.ts` -- React context providing pane layout state and mutation callbacks to all pane components.
+- `src/components/SessionsView.tsx` -- Orchestrator: data fetching, pane layout state, command mode, keyboard navigation. Provides `PaneCtx` and renders `PaneTree`.
+- `src/components/PaneTree.tsx` -- Recursive renderer: splits render as flex containers with `PaneDivider` between children; leaves render as `PaneLeaf`.
+- `src/components/PaneLeaf.tsx` -- Single pane: own tab bar, content area, split/close buttons, edge drop zones for drag-to-split. Contains `TabButton`, `StatusDot`, `MiclawSessionContent`, `DetectedSessionContent`, `NewSessionForm`, and `EdgeDropZone` sub-components.
+- `src/components/PaneDivider.tsx` -- Draggable resize handle between split panes. Direct DOM style manipulation during drag for 60fps, commits ratio to React state on mouseup.
+- `src/components/MiclawTerminal.tsx` -- xterm.js terminal connected to Node.js PTY server via WebSocket (port 3001). Terminal instances cached globally and survive pane splits/tab moves. Wrapped in `StableTerminal` memo to prevent re-renders from polling.
+- `src/components/TerminalMirror.tsx` -- Read-only terminal screen mirror for detected sessions.
+- `src/app/api/sessions/route.ts` -- GET returns detected sessions; DELETE kills a session by PID.
 - `src/app/api/sessions/colors/route.ts` -- Reads Terminal.app color profile for terminal theming.
 - `src/app/api/sessions/focus/route.ts` -- Brings a detected session's Terminal.app window to front.
 - `src/app/api/sessions/screen/route.ts` -- Reads Terminal.app tab history for TerminalMirror.
 - `src/app/api/sessions/upload/route.ts` -- Saves dropped images to temp files for terminal input.
-- `src/app/api/tmux/sessions/route.ts` -- GET/POST/DELETE for MiClaw sessions. Queries PTY server for alive/activity/cost.
-- `src/app/api/tmux/pty-server/route.ts` -- Ensures the PTY server is running.
-- `helpers/pty-server.py` -- Python WebSocket PTY server (port 3001). Manages real PTY processes, survives Next.js restarts.
+- `src/app/api/sessions/resolve/route.ts` -- Resolves dropped filenames to full paths via macOS Spotlight (mdfind).
+- `src/app/api/tmux/sessions/route.ts` -- GET/POST/DELETE for MiClaw sessions. Queries PTY server for alive/activity/cost. Auto-discovers Claude session IDs for cost tracking.
+- `src/app/api/tmux/pty-server/route.ts` -- Ensures the Node.js PTY server is running.
+- `helpers/pty-server.mjs` -- Node.js + node-pty WebSocket PTY server (port 3001). Manages real PTY processes, survives Next.js restarts. Auto-discovers Claude session IDs from PID files.
 
 ### Pages
 - `src/app/page.tsx` -- Overview page with sphere/tree visualization.
@@ -88,13 +94,16 @@ A visualization and editing dashboard for Claude Code configuration. Scans `~/.c
 - `src/app/projects/[slug]/page.tsx` -- Per-project detail page.
 
 ### Sessions key patterns
-- Tab-based layout: one session visible at a time, terminal fills viewport below tab bar.
-- MiClaw terminal instances are cached globally in a `Map<sessionId, CachedTerminal>` and survive tab switches (unmount/remount reattaches the DOM element).
-- `Shift+Esc` enters command mode (persistent bottom bar). Intercepted at xterm level via `attachCustomKeyEventHandler` so it never reaches Claude Code. Only `Esc` exits command mode.
+- Tiling pane layout: recursive binary tree of `LeafPane` (tab bar + content) and `SplitPane` (divider between children). Layout persists to `localStorage` key `miclaw:pane-layout`.
+- MiClaw terminal instances are cached globally in a `Map<sessionId, CachedTerminal>` and survive pane splits, tab moves, and unmount/remount (reattaches the DOM element).
+- Terminal wrapped in memoized `StableTerminal` component to prevent re-renders from polling-driven status updates stealing focus.
+- `Shift+Esc` enters command mode. `h/l` cycle tabs, `j/k` cycle panes, `Enter` focuses the selected terminal. All commands require explicit command mode to prevent accidental execution when terminal loses focus.
+- `Alt+1-9` jumps to tabs without entering command mode.
 - Detected sessions poll at 7s with JSONL mtime caching. MiClaw sessions poll at 3s via PTY server WebSocket.
-- "Waiting for input" detection for detected sessions: scanner reads JSONL tail, checks if last assistant message has `tool_use` blocks with no subsequent `tool_result`.
+- Turn state detection: `turnState: "idle" | "working" | "needs_input"` computed by finding the last assistant message in JSONL and checking for unmatched `tool_use` blocks. Non-tool-result user messages (task notifications) are skipped.
 - Adopt flow: creates a MiClaw session with `resumeId` pointing to the detected session's `sessionId`, kills the original detected process.
 - `miclaw:command-mode` custom DOM event bridges xterm key interception to SessionsView state.
+- PTY server uses node-pty (not raw forkpty) for proper flow control. Broadcasts are fire-and-forget to prevent backpressure deadlocks.
 
 ### Key patterns
 - Both views are always mounted (no unmount/remount on toggle). Visibility toggled via CSS opacity.

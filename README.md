@@ -6,7 +6,7 @@
 
 Launch, manage, and monitor all your Claude Code sessions in one place.
 
-One dashboard. Every session. Full terminals. Real-time status.
+One dashboard. Every session. Full terminals. Real-time status. Split panes.
 Plus a unified view of every agent, skill, hook, and config across your entire machine.
 
 <p align="center">
@@ -34,14 +34,16 @@ One command. Local server, open port, browser launches. No cloud, no accounts, n
 
 ## Sessions
 
-The core of MiClaw. A tabbed terminal dashboard where you launch, monitor, and control every Claude Code instance on your machine.
+The core of MiClaw. A tabbed, tiling terminal dashboard where you launch, monitor, and control every Claude Code instance on your machine.
 
 - **Launch sessions** -- spin up Claude Code in full interactive xterm.js terminals, right in your browser. Pick a working directory, set a model, configure permissions, and go.
+- **Split panes** -- view multiple sessions side-by-side or stacked. Split any pane horizontally or vertically. Drag tabs between panes to reorganize. Resize dividers to taste. Layout persists across refreshes.
 - **Monitor everything** -- see every running Claude session at a glance with real-time status indicators. Know instantly which sessions are working, which are waiting for input, and which are idle.
 - **Detect and adopt** -- MiClaw automatically discovers Claude Code sessions running in Terminal.app and mirrors their output. One click to **Adopt** any detected session into a fully managed MiClaw terminal.
+- **Drag and drop** -- drop files, folders, and screenshots directly onto a terminal. Folders resolve to their full path via Spotlight. Images are uploaded to temp files so Claude Code can read them.
 - **Crash recovery** -- sessions survive page refreshes and auto-resume if the process dies. Your work doesn't disappear.
-- **Cost tracking** -- real-time token usage and estimated cost per session.
-- **Keyboard-driven** -- `Shift+Esc` enters command mode for fast navigation without touching the mouse.
+- **Cost tracking** -- real-time token usage and estimated cost per session, powered by Claude session ID auto-discovery.
+- **Keyboard-driven** -- `Shift+Esc` enters command mode for fast navigation without touching the mouse. `Alt+1-9` jumps to tabs instantly.
 
 <!-- replace with a demo GIF of session launch + adopt flow -->
 
@@ -51,13 +53,22 @@ The core of MiClaw. A tabbed terminal dashboard where you launch, monitor, and c
 
 | Key | Action |
 |-----|--------|
+| `h` / `l` | Previous / next tab |
+| `j` / `k` | Next / previous pane |
 | `1-9` | Jump to tab |
-| `j` / `k` | Next / previous tab |
 | `n` | New session |
 | `a` | Adopt detected session |
 | `X` | Kill active session |
 | `O` | Open in Terminal.app |
+| `Enter` | Focus selected pane terminal |
 | `Esc` | Exit command mode |
+
+Always available (no command mode needed):
+
+| Key | Action |
+|-----|--------|
+| `Alt+1-9` | Jump to tab in focused pane |
+| `Shift+Esc` | Enter command mode |
 
 ---
 
