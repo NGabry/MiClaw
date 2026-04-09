@@ -189,6 +189,32 @@ describe("POST /api/tmux/sessions", () => {
     expect(response.status).toBe(200);
   });
 
+  it("passes killPid for adopt flow", async () => {
+    vi.mocked(createSession).mockReturnValue({
+      id: "miclaw-adopted",
+      displayName: "adopted",
+      cwd: "/test",
+      created: Date.now(),
+      killPid: 99999,
+    });
+
+    const request = new Request("http://localhost/api/tmux/sessions", {
+      method: "POST",
+      body: JSON.stringify({
+        name: "adopted",
+        cwd: "/test",
+        resumeId: "session-abc",
+        killPid: 99999,
+      }),
+    });
+
+    const response = await POST(request);
+    expect(response.status).toBe(200);
+    expect(createSession).toHaveBeenCalledWith("adopted", "/test", "session-abc", expect.objectContaining({
+      killPid: 99999,
+    }));
+  });
+
   it("returns 500 on creation error", async () => {
     vi.mocked(createSession).mockImplementation(() => {
       throw new Error("disk full");

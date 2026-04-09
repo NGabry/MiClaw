@@ -19,7 +19,7 @@ Plus a unified view of every agent, skill, hook, and config across your entire m
 
 ---
 
-<video src="https://github.com/NGabry/MiClaw/raw/main/.github/sessions_demo.mov" autoplay loop muted playsinline width="100%"></video>
+<video src="https://github.com/NGabry/MiClaw/raw/main/.github/sessions_demo.mp4" autoplay loop muted playsinline width="100%"></video>
 
 ## Install
 

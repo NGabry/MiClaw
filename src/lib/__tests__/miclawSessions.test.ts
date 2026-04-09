@@ -133,6 +133,14 @@ describe("createSession", () => {
     expect(session.worktree).toBe(true);
   });
 
+  it("stores killPid for adopt flow", () => {
+    const session = createSession("adopted", "/cwd", "resume-456", {
+      killPid: 12345,
+    });
+    expect(session.claudeSessionId).toBe("resume-456");
+    expect(session.killPid).toBe(12345);
+  });
+
   it("appends to existing sessions", () => {
     vi.mocked(readFileSync).mockReturnValue(JSON.stringify(sampleSessions));
     createSession("new");
