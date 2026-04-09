@@ -83,15 +83,6 @@ MiClaw also scans `~/.claude/` and every project-level config to give you a unif
 
 ---
 
-## Stack
-
-- **Next.js 16** -- App Router, React Server Components, standalone output
-- **React 19** -- client components only where needed
-- **TypeScript** -- strict mode
-- **Tailwind CSS v4** -- `@theme inline` blocks
-- **d3-hierarchy** -- layout math only, React renders the DOM
-- **xterm.js** + **node-pty** -- embedded terminal emulator with PTY server
-
 ## Development
 
 Node.js 20+ and [Bun](https://bun.sh/) required.
@@ -103,11 +94,7 @@ bun install
 bun run dev
 ```
 
-| Command | |
-|---|---|
-| `bun run dev` | Dev server with hot reload |
-| `bun run build` | Production build (standalone) |
-| `bun run check` | Lint + typecheck |
+See [CLAUDE.md](CLAUDE.md) for more
 
 ## Publishing
 

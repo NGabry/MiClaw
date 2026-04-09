@@ -39,6 +39,11 @@ function tabIdFromItem(item: TabItem): string {
 // Main component
 // ---------------------------------------------------------------------------
 
+interface HealthIssue {
+  key: string;
+  message: string;
+}
+
 export function SessionsView() {
   const [sessions, setSessions] = useState<ActiveSession[]>([]);
   const [tmuxSessions, setTmuxSessions] = useState<MiclawSessionWithStatus[]>([]);
@@ -46,6 +51,8 @@ export function SessionsView() {
   const [paneLayout, setPaneLayout] = useState<PaneLayout | null>(null);
   const [commandMode, setCommandMode] = useState(false);
   const [newFormPanes, setNewFormPanes] = useState<Set<string>>(new Set());
+  const [healthIssues, setHealthIssues] = useState<HealthIssue[]>([]);
+  const [healthDismissed, setHealthDismissed] = useState(false);
 
   // Debounced save to localStorage
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -85,6 +92,36 @@ export function SessionsView() {
         setTmuxSessions(data);
       }
     } catch { /* silent */ }
+  }, []);
+
+  // ---- Health check on mount ----
+
+  useEffect(() => {
+    fetch("/api/health")
+      .then((r) => r.json())
+      .then((data) => {
+        const issues: HealthIssue[] = [];
+        if (!data.claude?.ok) {
+          issues.push({
+            key: "claude",
+            message: data.claude?.error || "Claude CLI not found. Install: npm install -g @anthropic-ai/claude-code",
+          });
+        }
+        if (!data.nodePty?.ok) {
+          issues.push({
+            key: "nodePty",
+            message: data.nodePty?.error || "node-pty issue detected. Try: bun install",
+          });
+        }
+        if (!data.nodeVersion?.ok) {
+          issues.push({
+            key: "nodeVersion",
+            message: data.nodeVersion?.error || "Node.js 20+ required",
+          });
+        }
+        setHealthIssues(issues);
+      })
+      .catch(() => {}); // Health endpoint unavailable, skip
   }, []);
 
   useEffect(() => {
@@ -601,6 +638,26 @@ export function SessionsView() {
   return (
     <PaneCtx.Provider value={ctxValue}>
       <div className="flex flex-col h-full relative">
+        {/* Health issue banner */}
+        {healthIssues.length > 0 && !healthDismissed && (
+          <div data-testid="health-banner" className="shrink-0 border-b border-red-500/20 bg-red-500/5 px-4 py-2.5 flex items-start gap-3">
+            <div className="flex-1 flex flex-col gap-1">
+              {healthIssues.map((issue) => (
+                <p key={issue.key} className="text-xs font-mono text-red-400">
+                  <span className="text-red-500 font-semibold">[{issue.key}]</span>{" "}
+                  {issue.message}
+                </p>
+              ))}
+            </div>
+            <button
+              onClick={() => setHealthDismissed(true)}
+              className="text-red-400/60 hover:text-red-400 text-xs font-mono shrink-0 mt-0.5"
+            >
+              dismiss
+            </button>
+          </div>
+        )}
+
         {/* Pane tree fills the main area */}
         <div className="flex-1 min-h-0 overflow-hidden">
           <PaneTree node={paneLayout.root} />

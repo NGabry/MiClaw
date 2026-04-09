@@ -13,7 +13,21 @@ function isRunning(): boolean {
   }
 }
 
+function ensureSpawnHelper(): void {
+  // Bun may strip +x from node-pty's spawn-helper during install.
+  // Fix it before starting the PTY server.
+  try {
+    const { execSync: exec } = require("child_process");
+    exec(
+      'find node_modules/node-pty/prebuilds -name spawn-helper -exec chmod +x {} \\; 2>/dev/null; ' +
+      'chmod +x node_modules/node-pty/build/Release/spawn-helper 2>/dev/null; true',
+      { timeout: 3000, stdio: "ignore" },
+    );
+  } catch { /* best-effort */ }
+}
+
 function startServer(): void {
+  ensureSpawnHelper();
   // Use execSync to launch detached — avoids Turbopack tracing spawn() arguments
   const root = process.cwd();
   execSync(

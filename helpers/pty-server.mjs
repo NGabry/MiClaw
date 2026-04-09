@@ -14,12 +14,39 @@
 
 import { spawn } from 'node-pty';
 import { WebSocketServer } from 'ws';
-import { readFileSync, existsSync } from 'fs';
+import { readFileSync, existsSync, chmodSync } from 'fs';
 import { execSync } from 'child_process';
 import { homedir } from 'os';
-import { join } from 'path';
+import { join, dirname } from 'path';
+import { createRequire } from 'module';
 
 const PORT = parseInt(process.argv[2] || '3001', 10);
+
+// ---------------------------------------------------------------------------
+// Ensure node-pty spawn-helper is executable (Bun strips +x on install)
+// ---------------------------------------------------------------------------
+
+function ensureSpawnHelperPermissions() {
+  try {
+    const require = createRequire(import.meta.url);
+    const ptyDir = dirname(require.resolve('node-pty'));
+    const platform = process.platform;
+    const arch = process.arch;
+    const helperPaths = [
+      join(ptyDir, '..', 'prebuilds', `${platform}-${arch}`, 'spawn-helper'),
+      join(ptyDir, '..', 'build', 'Release', 'spawn-helper'),
+    ];
+    for (const p of helperPaths) {
+      if (existsSync(p)) {
+        try {
+          chmodSync(p, 0o755);
+        } catch { /* may already be executable */ }
+      }
+    }
+  } catch { /* non-critical */ }
+}
+
+ensureSpawnHelperPermissions();
 const MAX_SCROLLBACK = 5_000_000; // ~5MB per session
 const SESSIONS_DIR = join(homedir(), '.claude', 'sessions');
 
@@ -111,13 +138,29 @@ function spawnPty(sessionId, opts, cols, rows) {
   const env = { ...process.env, TERM: 'xterm-256color', COLORTERM: 'truecolor', CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS: '1' };
   delete env.CLAUDECODE;
 
-  const ptyProcess = spawn(shell, ['-c', cmdParts.join(' ')], {
-    name: 'xterm-256color',
-    cols,
-    rows,
-    cwd,
-    env,
-  });
+  let ptyProcess;
+  try {
+    ptyProcess = spawn(shell, ['-c', cmdParts.join(' ')], {
+      name: 'xterm-256color',
+      cols,
+      rows,
+      cwd,
+      env,
+    });
+  } catch (err) {
+    const msg = err.message || String(err);
+    console.error(`[PTY] Failed to spawn session ${sessionId}: ${msg}`);
+    // Surface the error back through the broadcast channel so the UI can show it
+    broadcast(sessionId, {
+      type: 'session:error',
+      sessionId,
+      error: msg.includes('posix_spawnp')
+        ? 'PTY spawn failed. Run: chmod +x node_modules/node-pty/prebuilds/darwin-*/spawn-helper'
+        : `PTY spawn failed: ${msg}`,
+    });
+    broadcast(sessionId, { type: 'session:exited', sessionId, exitCode: 1 });
+    return null;
+  }
 
   const session = {
     process: ptyProcess,
@@ -222,6 +265,10 @@ wss.on('connection', (ws) => {
           const opts = pendingSpawns.get(sid);
           pendingSpawns.delete(sid);
           const session = spawnPty(sid, opts, cols, rows);
+          if (!session) {
+            // spawnPty failed and already broadcast the error
+            break;
+          }
           ws.send(JSON.stringify({ type: 'session:spawned', sessionId: sid, pid: session.process.pid }));
         } else {
           const session = ptys.get(sid);

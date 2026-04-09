@@ -35,6 +35,10 @@ __pycache__/
 # claude code
 .claude/
 
+# test artifacts
+/test-results/
+/playwright-report/
+
 # misc
 .DS_Store
 .vercel

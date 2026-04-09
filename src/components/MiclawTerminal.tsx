@@ -183,6 +183,8 @@ function connectWs(
         }));
       } else if (msg.type === "terminal:output") {
         cached.batchWrite(msg.data);
+      } else if (msg.type === "session:error" && msg.sessionId === sessionId) {
+        cached.terminal.write("\r\n\x1b[1;31m[PTY Error]\x1b[0m \x1b[31m" + (msg.error || "Unknown error") + "\x1b[0m\r\n");
       } else if (msg.type === "session:exited") {
         const code = msg.exitCode ?? "unknown";
         cached.terminal.write("\r\n\x1b[90m[session exited with code " + code + "]\x1b[0m\r\n");

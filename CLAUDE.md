@@ -81,8 +81,11 @@ A visualization and editing dashboard for Claude Code configuration. Scans `~/.c
 - `src/app/api/tmux/pty-server/route.ts` -- Ensures the Node.js PTY server is running.
 - `helpers/pty-server.mjs` -- Node.js + node-pty WebSocket PTY server (port 3001). Manages real PTY processes, survives Next.js restarts. Auto-discovers Claude session IDs from PID files.
 
+### API routes (additional)
+- `src/app/api/health/route.ts` -- GET returns health check status (claude CLI, node-pty, PTY server, Node.js version).
+
 ### Pages
-- `src/app/page.tsx` -- Overview page with sphere/tree visualization.
+- `src/app/page.tsx` -- Sessions page (home).
 - `src/app/agents/page.tsx` -- Agents detail page.
 - `src/app/skills/page.tsx` -- Skills detail page.
 - `src/app/commands/page.tsx` -- Commands detail page.
@@ -125,17 +128,79 @@ Matches the Anthropic/Claude UI aesthetic:
 - Font: Inter (sans), Geist Mono (mono), Fira Code (logo)
 - Grid background on main content area
 
+### Health check & onboarding
+- `src/lib/healthCheck.ts` -- Preflight checks: Claude CLI in PATH, node-pty spawn-helper permissions, PTY server running, Node.js version.
+- `src/app/api/health/route.ts` -- GET endpoint returning combined health status.
+- SessionsView shows a dismissable red banner when health checks fail (e.g. "claude CLI not found. Install: npm install -g @anthropic-ai/claude-code").
+- PTY server auto-fixes node-pty spawn-helper permissions on startup (Bun strips the +x bit during install).
+- `scripts/postinstall.sh` runs on `bun install` to chmod +x all spawn-helper binaries.
+
 ## Commands
 
 ```bash
-bun run dev        # Start dev server
-bun run build      # Production build (standalone)
-bun run start      # Start production server
-bun run check      # Lint + typecheck
-bun run lint       # ESLint only
-bun run lint:fix   # ESLint auto-fix
-bun run typecheck  # TypeScript only
+bun run dev            # Start dev server
+bun run build          # Production build (standalone)
+bun run start          # Start production server
+bun run check          # Lint + typecheck + test
+bun run lint           # ESLint only
+bun run lint:fix       # ESLint auto-fix
+bun run typecheck      # TypeScript only
+bun run test           # Run unit tests (Vitest)
+bun run test:watch     # Run unit tests in watch mode
+bun run test:coverage  # Run unit tests with V8 coverage
+bun run test:ci        # Run unit tests with verbose reporter (CI)
+bun run e2e            # Run E2E tests (Playwright, starts dev server)
+bun run e2e:headed     # Run E2E tests in headed browser
+bun run e2e:ui         # Run E2E tests in Playwright interactive UI
 ```
+
+## Testing
+
+Two test tiers:
+
+### Unit & integration tests (Vitest)
+
+Uses [Vitest](https://vitest.dev/) with mocked filesystem and child_process dependencies. Tests are co-located with source code in `__tests__/` directories.
+
+**Structure:**
+- `src/lib/__tests__/` -- Unit tests for all library modules (paneUtils, constants, parser, sphereData, sessionScanner, scanner, actions, miclawSessions, tmuxManager, healthCheck)
+- `src/app/api/**/__tests__/` -- Integration tests for all API routes (sessions CRUD, colors, focus, screen, resolve, upload, tmux sessions, pty-server, health)
+- `src/test/setup.ts` -- Global test setup (deterministic UUID generation)
+- `vitest.config.ts` -- Vitest configuration with path aliases
+
+**Conventions:**
+- Mock `fs/promises` and `child_process` for I/O modules -- never hit the real filesystem in tests
+- Mock `next/cache` (`revalidatePath`) for server actions
+- Use `vi.resetAllMocks()` in `beforeEach` to prevent state leaking between tests
+- API route tests use the standard `Request`/`Response` Web API (no need for a test HTTP server)
+- Pure utility functions (paneUtils, parser, constants, sphereData) are tested without mocks
+
+### E2E tests (Playwright)
+
+Uses [Playwright](https://playwright.dev/) for browser-level smoke tests. Located in `e2e/` directory.
+
+**Structure:**
+- `e2e/health.spec.ts` -- Health API endpoint validation, health banner behavior
+- `e2e/navigation.spec.ts` -- Page loads, sidebar navigation, config pages render without errors
+- `e2e/sessions.spec.ts` -- PTY server on-demand start, session CRUD lifecycle, command mode keyboard shortcut
+- `playwright.config.ts` -- Playwright configuration (auto-starts dev server on port 3000)
+
+**Conventions:**
+- E2E tests auto-start a dev server via `playwright.config.ts` `webServer` config
+- Tests use `page.route()` for mocking API responses where needed
+- Use `data-testid` attributes for stable selectors (e.g. `health-banner`)
+- API-level tests use Playwright's `request` fixture for direct HTTP calls
+- The `/smoke-test` Claude skill runs the E2E suite on demand
+
+### CI
+
+GitHub Actions workflow at `.github/workflows/ci.yml` runs on PRs and pushes to `main`:
+1. Install dependencies with `bun install --frozen-lockfile`
+2. Lint (`bun run lint`)
+3. Typecheck (`bun run typecheck`)
+4. Test (`bun run test:ci`)
+
+E2E tests are run locally via the `/smoke-test` skill or `bun run e2e` (not in CI, since they require a running dev server and macOS features).
 
 ## Distribution
 
@@ -153,6 +218,12 @@ The `prepublishOnly` script builds standalone output. The CLI (`bin/miclaw.mjs`)
 - Never hardcode machine-specific paths. Use `os.homedir()` and dynamic discovery.
 - D3 is used ONLY for layout math (`d3-hierarchy` pack/tree). All rendering is React/CSS.
 - MCP servers come from both `~/.claude.json` (global) and per-project `.mcp.json` files.
+
+## Known Gotchas
+
+- **node-pty spawn-helper permissions**: Bun strips the execute bit from `node_modules/node-pty/prebuilds/darwin-*/spawn-helper` during install. The `postinstall` script and PTY server startup both auto-fix this, but if sessions fail with "posix_spawnp failed", run: `chmod +x node_modules/node-pty/prebuilds/darwin-*/spawn-helper`.
+- **Turbopack route discovery**: New API route files (e.g. `src/app/api/*/route.ts`) are not compiled by Turbopack until the dev server is restarted. If a new route returns 404, restart the dev server.
+- **PTY server port conflict**: If port 3001 is in use by another process, sessions will fail to connect. Kill the conflicting process or restart MiClaw.
 
 ## Development Principles
 
