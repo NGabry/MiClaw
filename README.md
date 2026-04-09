@@ -79,11 +79,11 @@ MiClaw also scans `~/.claude/` and every project-level config to give you a unif
 
 **Overview navigation**
 
-https://github.com/user-attachments/assets/739c09d1-0206-453b-9e90-e1c661cbe49d
+![Overview navigation](https://raw.githubusercontent.com/NGabry/MiClaw/main/.github/demo-overview-nav.gif)
 
 **Editing rules**
 
-https://github.com/user-attachments/assets/e3c645e4-d704-45e9-9387-11f261e28a64
+![Editing rules](https://raw.githubusercontent.com/NGabry/MiClaw/main/.github/demo-edit-rules.gif)
 
 ---
 
