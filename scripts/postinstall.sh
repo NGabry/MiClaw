@@ -12,3 +12,8 @@ done
 if [ -f node_modules/node-pty/build/Release/spawn-helper ]; then
   chmod +x node_modules/node-pty/build/Release/spawn-helper 2>/dev/null
 fi
+
+# Install git hooks (only if inside a git repo, not in CI)
+if [ -z "$CI" ] && git rev-parse --git-dir >/dev/null 2>&1; then
+  sh "$(dirname "$0")/install-hooks.sh"
+fi
