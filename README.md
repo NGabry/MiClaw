@@ -19,7 +19,7 @@ Plus a unified view of every agent, skill, hook, and config across your entire m
 
 ---
 
-<video src="https://github.com/NGabry/MiClaw/raw/main/.github/sessions_demo.mp4" autoplay loop muted playsinline width="100%"></video>
+https://github.com/user-attachments/assets/23b5ace8-4faf-4121-9150-d58c8adf90a2
 
 ## Install
 
@@ -80,14 +80,14 @@ MiClaw also scans `~/.claude/` and every project-level config to give you a unif
 <details>
 <summary>Overview navigation</summary>
 
-<video src="https://github.com/NGabry/MiClaw/raw/main/.github/demo-overview-nav.mp4" autoplay loop muted playsinline width="100%"></video>
+https://github.com/user-attachments/assets/739c09d1-0206-453b-9e90-e1c661cbe49d
 
 </details>
 
 <details>
 <summary>Editing rules</summary>
 
-<video src="https://github.com/NGabry/MiClaw/raw/main/.github/demo-edit-rules.mp4" autoplay loop muted playsinline width="100%"></video>
+https://github.com/user-attachments/assets/e3c645e4-d704-45e9-9387-11f261e28a64
 
 </details>
 
