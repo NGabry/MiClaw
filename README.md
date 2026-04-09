@@ -77,19 +77,13 @@ MiClaw also scans `~/.claude/` and every project-level config to give you a unif
 - **Visualize** -- interactive circle-pack and tree views that surface agents, skills, slash commands, MCP servers, hooks, settings, permissions, keybindings, and instruction files across all projects
 - **Edit in place** -- modify agents, skills, commands, and instruction files directly in the dashboard. No more hunting through nested directories.
 
-<details>
-<summary>Overview navigation</summary>
+**Overview navigation**
 
 https://github.com/user-attachments/assets/739c09d1-0206-453b-9e90-e1c661cbe49d
 
-</details>
-
-<details>
-<summary>Editing rules</summary>
+**Editing rules**
 
 https://github.com/user-attachments/assets/e3c645e4-d704-45e9-9387-11f261e28a64
-
-</details>
 
 ---
 
