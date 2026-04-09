@@ -19,8 +19,7 @@ Plus a unified view of every agent, skill, hook, and config across your entire m
 
 ---
 
-<!-- replace with a demo GIF/video of sessions: tab switching, launching, adopt flow, status indicators -->
-![MiClaw](https://raw.githubusercontent.com/NGabry/MiClaw/main/public/screenshot.png)
+https://github.com/NGabry/MiClaw/raw/main/.github/sessions_demo.mov
 
 ## Install
 
@@ -45,7 +44,6 @@ The core of MiClaw. A tabbed, tiling terminal dashboard where you launch, monito
 - **Cost tracking** -- real-time token usage and estimated cost per session, powered by Claude session ID auto-discovery.
 - **Keyboard-driven** -- `Shift+Esc` enters command mode for fast navigation without touching the mouse. `Alt+1-9` jumps to tabs instantly.
 
-<!-- replace with a demo GIF of session launch + adopt flow -->
 
 ### Keyboard shortcuts
 
@@ -79,7 +77,19 @@ MiClaw also scans `~/.claude/` and every project-level config to give you a unif
 - **Visualize** -- interactive circle-pack and tree views that surface agents, skills, slash commands, MCP servers, hooks, settings, permissions, keybindings, and instruction files across all projects
 - **Edit in place** -- modify agents, skills, commands, and instruction files directly in the dashboard. No more hunting through nested directories.
 
-<!-- replace with a screenshot/GIF of the overview visualization -->
+<details>
+<summary>Overview navigation</summary>
+
+https://github.com/NGabry/MiClaw/raw/main/.github/demo-overview-nav.mp4
+
+</details>
+
+<details>
+<summary>Editing rules</summary>
+
+https://github.com/NGabry/MiClaw/raw/main/.github/demo-edit-rules.mp4
+
+</details>
 
 ---
 

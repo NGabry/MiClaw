@@ -67,6 +67,10 @@ export function SessionsView() {
     persistLayout(layout);
   }, [persistLayout]);
 
+  // Mutable ref for async functions that need the latest layout after awaits
+  const paneLayoutRef = useRef(paneLayout);
+  paneLayoutRef.current = paneLayout;
+
   // ---- Data fetching ----
 
   const fetchSessions = useCallback(async () => {
@@ -211,6 +215,7 @@ export function SessionsView() {
 
   async function handleAdopt(detected: ActiveSession) {
     try {
+      // 1. Create the MiClaw session (registers in JSON, not yet spawned)
       const res = await fetch("/api/tmux/sessions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -220,16 +225,35 @@ export function SessionsView() {
           resumeId: detected.sessionId,
         }),
       });
-      if (res.ok) {
-        await res.json();
-        await fetchTmuxSessions();
-        await fetch("/api/sessions", {
-          method: "DELETE",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ pid: detected.pid }),
-        });
-        await fetchSessions();
-        // The new tab will be added by reconcileTabs on next allTabIds update
+      if (!res.ok) return;
+      const newSession = await res.json();
+      const newTabId = newSession.id as string;
+
+      // 2. Kill the detected session first so it disappears from the tab list
+      await fetch("/api/sessions", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pid: detected.pid }),
+      });
+
+      // 3. Refresh both lists so reconcileTabs sees the new tab and drops the old one
+      await Promise.all([fetchTmuxSessions(), fetchSessions()]);
+
+      // 4. Switch the focused pane to the newly adopted session tab.
+      // Use the ref to get the latest layout (state may have changed during awaits).
+      const layout = paneLayoutRef.current;
+      if (layout) {
+        const focusedId = layout.focusedPaneId;
+        function setTab(node: import("@/lib/paneTypes").PaneNode): import("@/lib/paneTypes").PaneNode {
+          if (node.type === "leaf" && node.id === focusedId) {
+            return { ...node, activeTabId: newTabId };
+          }
+          if (node.type === "split") {
+            return { ...node, children: [setTab(node.children[0]), setTab(node.children[1])] };
+          }
+          return node;
+        }
+        updateLayout({ root: setTab(layout.root), focusedPaneId: focusedId });
       }
     } catch { /* silent */ }
   }
@@ -397,8 +421,6 @@ export function SessionsView() {
     setCommandMode(true);
   }
 
-  const paneLayoutRef = useRef(paneLayout);
-  paneLayoutRef.current = paneLayout;
   const allTabsRef = useRef(allTabs);
   allTabsRef.current = allTabs;
 

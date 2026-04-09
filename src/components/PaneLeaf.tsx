@@ -252,7 +252,7 @@ const StableTerminal = memo(function StableTerminal({ session }: {
         sessionId={session.id}
         cwd={session.cwd}
         name={session.displayName}
-        resumeId={!session.alive ? session.claudeSessionId : undefined}
+        resumeId={session.claudeSessionId}
         permissionMode={session.permissionMode}
         model={session.model}
         allowedTools={session.allowedTools}
@@ -261,7 +261,7 @@ const StableTerminal = memo(function StableTerminal({ session }: {
       />
     </div>
   );
-}, (prev, next) => prev.session.id === next.session.id && prev.session.alive === next.session.alive);
+}, (prev, next) => prev.session.id === next.session.id);
 
 function MiclawSessionContent({ session, onKill }: {
   session: MiclawSessionWithStatus;
