@@ -64,7 +64,7 @@ export function checkNodePty(): HealthStatus["nodePty"] {
         try {
           chmodSync(helperPath, 0o755);
           return { ok: true };
-        } catch (fixErr) {
+        } catch {
           return {
             ok: false,
             error: `spawn-helper not executable: run chmod +x ${helperPath}`,

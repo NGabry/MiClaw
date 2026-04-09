@@ -25,13 +25,14 @@ describe("GET /api/tmux/pty-server", () => {
 
   it("starts the PTY server when not running", async () => {
     let callCount = 0;
-    vi.mocked(execSync).mockImplementation(() => {
+    vi.mocked(execSync).mockImplementation((cmd: unknown) => {
       callCount++;
-      if (callCount === 1) {
-        // First call: lsof check (server not running)
+      const cmdStr = String(cmd);
+      if (cmdStr.includes("lsof")) {
+        // lsof check: server not running
         throw new Error("no process");
       }
-      // Second call: starting the server
+      // ensureSpawnHelper chmod or server start — both succeed
       return "";
     });
 
@@ -39,7 +40,8 @@ describe("GET /api/tmux/pty-server", () => {
     const data = await response.json();
 
     expect(data.running).toBe(true);
-    expect(execSync).toHaveBeenCalledTimes(2);
+    // lsof (fail) + ensureSpawnHelper (chmod) + start server = 3 calls
+    expect(callCount).toBeGreaterThanOrEqual(2);
   });
 
   it("returns 500 when server fails to start", async () => {

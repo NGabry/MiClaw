@@ -26,9 +26,9 @@ import { GET, POST, DELETE } from "../sessions/route";
 
 function mockPtyWebSocket(sessions: { sessionId: string; alive: boolean; title: string; activity: string; claudeSessionId?: string }[]) {
   vi.mocked(WebSocket).mockImplementation(function (this: Record<string, unknown>) {
-    const handlers: Record<string, Function[]> = {};
+    const handlers: Record<string, ((...args: unknown[]) => void)[]> = {};
 
-    this.on = (event: string, cb: Function) => {
+    this.on = (event: string, cb: (...args: unknown[]) => void) => {
       if (!handlers[event]) handlers[event] = [];
       handlers[event].push(cb);
       return this;
@@ -100,8 +100,8 @@ describe("GET /api/tmux/sessions", () => {
 
     // WebSocket fails
     vi.mocked(WebSocket).mockImplementation(function (this: Record<string, unknown>) {
-      const handlers: Record<string, Function[]> = {};
-      this.on = (event: string, cb: Function) => {
+      const handlers: Record<string, ((...args: unknown[]) => void)[]> = {};
+      this.on = (event: string, cb: (...args: unknown[]) => void) => {
         if (!handlers[event]) handlers[event] = [];
         handlers[event].push(cb);
         return this;

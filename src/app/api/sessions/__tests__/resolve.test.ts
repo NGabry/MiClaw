@@ -20,7 +20,7 @@ describe("POST /api/sessions/resolve", () => {
   it("resolves a file name to its full path", async () => {
     vi.mocked(execFile).mockImplementation(
       (_cmd: string, _args: unknown, _opts: unknown, cb: unknown) => {
-        (cb as Function)(null, "/Users/test/Desktop/myfile.txt\n/Users/test/Downloads/myfile.txt\n");
+        (cb as (_err: Error | null, _stdout: string) => void)(null, "/Users/test/Desktop/myfile.txt\n/Users/test/Downloads/myfile.txt\n");
         return {} as ReturnType<typeof execFile>;
       },
     );
@@ -45,7 +45,7 @@ describe("POST /api/sessions/resolve", () => {
   it("resolves a directory name", async () => {
     vi.mocked(execFile).mockImplementation(
       (_cmd: string, _args: unknown, _opts: unknown, cb: unknown) => {
-        (cb as Function)(null, "/Users/test/Desktop/mydir\n");
+        (cb as (_err: Error | null, _stdout: string) => void)(null, "/Users/test/Desktop/mydir\n");
         return {} as ReturnType<typeof execFile>;
       },
     );
@@ -88,7 +88,7 @@ describe("POST /api/sessions/resolve", () => {
   it("returns 404 when file not found", async () => {
     vi.mocked(execFile).mockImplementation(
       (_cmd: string, _args: unknown, _opts: unknown, cb: unknown) => {
-        (cb as Function)(new Error("not found"), "");
+        (cb as (_err: Error | null, _stdout: string) => void)(new Error("not found"), "");
         return {} as ReturnType<typeof execFile>;
       },
     );
@@ -106,7 +106,7 @@ describe("POST /api/sessions/resolve", () => {
     vi.mocked(execFile).mockImplementation(
       (_cmd: string, _args: unknown, _opts: unknown, cb: unknown) => {
         // Returns a path where basename differs
-        (cb as Function)(null, "/Users/test/myfile-copy.txt\n");
+        (cb as (_err: Error | null, _stdout: string) => void)(null, "/Users/test/myfile-copy.txt\n");
         return {} as ReturnType<typeof execFile>;
       },
     );

@@ -1,5 +1,4 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import path from "path";
 
 // Mock fs/promises before importing the module
 vi.mock("fs/promises", () => ({
@@ -14,44 +13,6 @@ vi.mock("fs/promises", () => ({
 
 import fs from "fs/promises";
 import { scanActiveSessions, killSession, getSessionCost } from "../sessionScanner";
-
-// ---------------------------------------------------------------------------
-// Helper to build JSONL content
-// ---------------------------------------------------------------------------
-
-function jsonl(...entries: Record<string, unknown>[]): string {
-  return entries.map((e) => JSON.stringify(e)).join("\n");
-}
-
-function assistantEntry(
-  content: { type: string; text?: string; name?: string; input?: unknown }[],
-  usage?: Record<string, number>,
-): Record<string, unknown> {
-  return {
-    type: "assistant",
-    message: {
-      content,
-      ...(usage ? { usage } : {}),
-    },
-    timestamp: "2024-01-01T00:00:00Z",
-  };
-}
-
-function userTextEntry(text: string): Record<string, unknown> {
-  return {
-    type: "user",
-    message: { content: [{ type: "text", text }] },
-    timestamp: "2024-01-01T00:00:01Z",
-  };
-}
-
-function userToolResultEntry(): Record<string, unknown> {
-  return {
-    type: "user",
-    message: { content: [{ type: "tool_result", tool_use_id: "tu1", content: [{ type: "text", text: "result" }] }] },
-    timestamp: "2024-01-01T00:00:02Z",
-  };
-}
 
 // ---------------------------------------------------------------------------
 // scanActiveSessions

@@ -1,4 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { homedir } from "os";
+
+const HOME = homedir();
 
 // Mock dependencies
 vi.mock("fs/promises", () => ({
@@ -67,7 +70,7 @@ describe("saveAgent", () => {
   });
 
   it("saves a project agent", async () => {
-    const homedir = require("os").homedir();
+    const homedir = HOME;
     const result = await saveAgent(
       makeFormData({
         name: "proj-agent",
@@ -112,7 +115,7 @@ describe("saveAgent", () => {
   });
 
   it("deletes old file on rename", async () => {
-    const homedir = require("os").homedir();
+    const homedir = HOME;
     // The new path will be GLOBAL_AGENTS_DIR/new-name.md
     // The old path must differ but still be valid (inside HOME_DIR with .claude)
     const oldPath = `${homedir}/.claude/agents/old-name.md`;
@@ -138,7 +141,7 @@ describe("saveAgent", () => {
   });
 
   it("does not delete when path unchanged", async () => {
-    const homedir = require("os").homedir();
+    const homedir = HOME;
     const samePath = `${homedir}/.claude/agents/same.md`;
     await saveAgent(
       makeFormData({
@@ -222,7 +225,7 @@ describe("saveSkill", () => {
   });
 
   it("deletes old skill directory on rename", async () => {
-    const homedir = require("os").homedir();
+    const homedir = HOME;
     const oldPath = `${homedir}/.claude/skills/old-skill/SKILL.md`;
     await saveSkill(
       makeFormData({
@@ -254,7 +257,7 @@ describe("saveCommand", () => {
   });
 
   it("saves a command file", async () => {
-    const homedir = require("os").homedir();
+    const homedir = HOME;
     const result = await saveCommand(
       makeFormData({
         name: "deploy",
@@ -292,7 +295,7 @@ describe("saveInstructionFile", () => {
   });
 
   it("saves content to a file path", async () => {
-    const homedir = require("os").homedir();
+    const homedir = HOME;
     const result = await saveInstructionFile(
       makeFormData({
         filePath: `${homedir}/project/CLAUDE.md`,
@@ -327,7 +330,7 @@ describe("deleteItem", () => {
   });
 
   it("deletes a file for non-skill items", async () => {
-    const homedir = require("os").homedir();
+    const homedir = HOME;
     const result = await deleteItem(
       makeFormData({
         filePath: `${homedir}/.claude/agents/old.md`,
@@ -339,7 +342,7 @@ describe("deleteItem", () => {
   });
 
   it("deletes the entire skill directory for skill items", async () => {
-    const homedir = require("os").homedir();
+    const homedir = HOME;
     const result = await deleteItem(
       makeFormData({
         filePath: `${homedir}/.claude/skills/my-skill/SKILL.md`,
@@ -368,7 +371,7 @@ describe("deleteItem", () => {
   });
 
   it("returns error on filesystem failure", async () => {
-    const homedir = require("os").homedir();
+    const homedir = HOME;
     vi.mocked(fs.unlink).mockRejectedValue(new Error("ENOENT"));
     const result = await deleteItem(
       makeFormData({
