@@ -622,13 +622,8 @@ export function PaneLeaf({ pane }: PaneLeafProps) {
           ? "border-accent/50 shadow-[inset_0_0_0_1px_rgba(217,119,87,0.15),0_0_12px_rgba(217,119,87,0.1)]"
           : "border-border"
       }`}
-      onMouseDown={(e) => {
-        // Only focus pane on direct clicks (tab bar, empty areas), not
-        // clicks bubbling up from terminal/content to avoid focus fighting
-        const target = e.target as HTMLElement;
-        if (!target.closest("[data-miclaw-terminal]") && !target.closest("[data-terminal-mirror]")) {
-          focusPane(pane.id);
-        }
+      onMouseDown={() => {
+        focusPane(pane.id);
       }}
       onDragOver={(e) => {
         // Only react to miclaw tab drags (not file drops etc.)
