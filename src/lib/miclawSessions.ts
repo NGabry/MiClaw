@@ -50,7 +50,12 @@ export function createSession(
   },
 ): MiclawSession {
   const sessions = readSessions();
-  const id = `miclaw-${displayName?.replace(/[^a-zA-Z0-9_-]/g, "-") || randomBytes(4).toString("hex")}`;
+  const existingIds = new Set(sessions.map((s) => s.id));
+  const base = `miclaw-${displayName?.replace(/[^a-zA-Z0-9_-]/g, "-") || randomBytes(4).toString("hex")}`;
+  let id = base;
+  if (existingIds.has(id)) {
+    id = `${base}-${randomBytes(3).toString("hex")}`;
+  }
   const resolvedCwd = (cwd ?? "~/Desktop").replace(/^~/, homedir());
 
   const session: MiclawSession = {

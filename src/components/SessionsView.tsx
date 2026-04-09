@@ -277,10 +277,26 @@ export function SessionsView() {
         }),
       });
       if (res.ok) {
-        await res.json();
+        const newSession = await res.json();
+        const newTabId = newSession.id as string;
         await fetchTmuxSessions();
         // Close new form for all panes
         setNewFormPanes(new Set());
+        // Switch the focused pane to the newly created session tab
+        const layout = paneLayoutRef.current;
+        if (layout) {
+          const focusedId = layout.focusedPaneId;
+          function setTab(node: import("@/lib/paneTypes").PaneNode): import("@/lib/paneTypes").PaneNode {
+            if (node.type === "leaf" && node.id === focusedId) {
+              return { ...node, activeTabId: newTabId };
+            }
+            if (node.type === "split") {
+              return { ...node, children: [setTab(node.children[0]), setTab(node.children[1])] };
+            }
+            return node;
+          }
+          updateLayout({ root: setTab(layout.root), focusedPaneId: focusedId });
+        }
       }
     } catch { /* silent */ }
   }

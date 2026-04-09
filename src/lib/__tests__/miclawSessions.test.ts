@@ -149,6 +149,22 @@ describe("createSession", () => {
     const written = JSON.parse(writeCall[1] as string);
     expect(written).toHaveLength(3);
   });
+
+  it("appends random suffix when ID already exists", () => {
+    const existing = [{ id: "miclaw-dupe", displayName: "dupe", cwd: "/tmp", created: 1 }];
+    vi.mocked(readFileSync).mockReturnValue(JSON.stringify(existing));
+
+    const session = createSession("dupe");
+    expect(session.id).toBe("miclaw-dupe-deadbeef");
+    expect(session.displayName).toBe("dupe");
+  });
+
+  it("keeps base ID when no collision", () => {
+    vi.mocked(readFileSync).mockReturnValue(JSON.stringify(sampleSessions));
+
+    const session = createSession("unique-name");
+    expect(session.id).toBe("miclaw-unique-name");
+  });
 });
 
 // ---------------------------------------------------------------------------
