@@ -253,6 +253,7 @@ const StableTerminal = memo(function StableTerminal({ session }: {
         cwd={session.cwd}
         name={session.displayName}
         resumeId={session.claudeSessionId}
+        killPid={session.killPid}
         permissionMode={session.permissionMode}
         model={session.model}
         allowedTools={session.allowedTools}

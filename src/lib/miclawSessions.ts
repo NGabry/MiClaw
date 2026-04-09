@@ -11,6 +11,7 @@ export interface MiclawSession {
   cwd: string;
   created: number;
   claudeSessionId?: string;  // For resume on crash recovery
+  killPid?: number;           // PID of detected session to kill on adopt (used once by PTY server)
   permissionMode?: string;
   model?: string;
   allowedTools?: string;
@@ -40,6 +41,7 @@ export function createSession(
   cwd?: string,
   resumeId?: string,
   opts?: {
+    killPid?: number;
     permissionMode?: string;
     model?: string;
     allowedTools?: string;
@@ -57,6 +59,7 @@ export function createSession(
     cwd: resolvedCwd,
     created: Date.now(),
     claudeSessionId: resumeId,
+    killPid: opts?.killPid,
     permissionMode: opts?.permissionMode,
     model: opts?.model,
     allowedTools: opts?.allowedTools,

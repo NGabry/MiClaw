@@ -57,7 +57,7 @@ const SESSIONS_DIR = join(homedir(), '.claude', 'sessions');
 /** @type {Map<string, { process: import('node-pty').IPty, outputBuffer: string[], bufferSize: number, title: string, lastOutputTime: number, activity: string, claudeSessionId: string | null }>} */
 const ptys = new Map();
 
-/** @type {Map<string, { cwd: string, resume?: string, name?: string, permissionMode?: string, model?: string, allowedTools?: string, appendSystemPrompt?: string, worktree?: boolean }>} */
+/** @type {Map<string, { cwd: string, resume?: string, killPid?: number, name?: string, permissionMode?: string, model?: string, allowedTools?: string, appendSystemPrompt?: string, worktree?: boolean }>} */
 const pendingSpawns = new Map();
 
 /** @type {Map<string, Set<import('ws').WebSocket>>} */
@@ -122,10 +122,8 @@ function discoverClaudeSessionId(session) {
 // PTY spawning
 // ---------------------------------------------------------------------------
 
-function spawnPty(sessionId, opts, cols, rows) {
-  const shell = process.env.SHELL || '/bin/zsh';
+function buildCmdParts(opts) {
   const cmdParts = ['claude'];
-
   if (opts.resume) cmdParts.push('--resume', opts.resume);
   if (opts.name) cmdParts.push('--name', opts.name);
   if (opts.permissionMode) cmdParts.push('--permission-mode', opts.permissionMode);
@@ -133,10 +131,22 @@ function spawnPty(sessionId, opts, cols, rows) {
   if (opts.allowedTools) cmdParts.push('--allowedTools', opts.allowedTools);
   if (opts.appendSystemPrompt) cmdParts.push('--append-system-prompt', opts.appendSystemPrompt);
   if (opts.worktree) cmdParts.push('--worktree');
+  return cmdParts;
+}
+
+function spawnPty(sessionId, opts, cols, rows) {
+  const shell = process.env.SHELL || '/bin/zsh';
+  const cmdParts = buildCmdParts(opts);
 
   const cwd = opts.cwd || homedir();
   const env = { ...process.env, TERM: 'xterm-256color', COLORTERM: 'truecolor', CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS: '1' };
   delete env.CLAUDECODE;
+
+  // If adopting, kill the old process right before spawning so the session
+  // index entry still exists when `claude --resume` looks it up.
+  if (opts.killPid) {
+    try { process.kill(opts.killPid, 'SIGTERM'); } catch { /* already dead */ }
+  }
 
   let ptyProcess;
   try {
@@ -172,6 +182,8 @@ function spawnPty(sessionId, opts, cols, rows) {
     claudeSessionId: null,
   };
 
+  const spawnTime = Date.now();
+
   // PTY output → buffer + broadcast (fire-and-forget, never blocks)
   ptyProcess.onData((data) => {
     session.lastOutputTime = Date.now();
@@ -195,8 +207,22 @@ function spawnPty(sessionId, opts, cols, rows) {
   });
 
   ptyProcess.onExit(({ exitCode }) => {
-    broadcast(sessionId, { type: 'session:exited', sessionId, exitCode });
     ptys.delete(sessionId);
+
+    // If a --resume session exits quickly with an error, retry without --resume.
+    // This handles cases where the session isn't in sessions-index.json
+    // (e.g. empty sessions, stale index, session cleaned up on kill).
+    if (opts.resume && exitCode !== 0 && (Date.now() - spawnTime) < 5000) {
+      console.error(`[PTY] --resume failed for ${sessionId} (code ${exitCode}), retrying without --resume`);
+      const fallbackOpts = { ...opts, resume: undefined, killPid: undefined };
+      const fallbackSession = spawnPty(sessionId, fallbackOpts, cols, rows);
+      if (fallbackSession) {
+        broadcast(sessionId, { type: 'session:spawned', sessionId, pid: fallbackSession.process.pid });
+      }
+      return;
+    }
+
+    broadcast(sessionId, { type: 'session:exited', sessionId, exitCode });
   });
 
   ptys.set(sessionId, session);
@@ -242,6 +268,7 @@ wss.on('connection', (ws) => {
         pendingSpawns.set(sid, {
           cwd: msg.cwd || '~',
           resume: msg.resume,
+          killPid: msg.killPid || undefined,
           name: msg.name,
           permissionMode: msg.permissionMode,
           model: msg.model,

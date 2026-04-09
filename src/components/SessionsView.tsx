@@ -215,7 +215,9 @@ export function SessionsView() {
 
   async function handleAdopt(detected: ActiveSession) {
     try {
-      // 1. Create the MiClaw session (registers in JSON, not yet spawned)
+      // 1. Create the MiClaw session with killPid so the PTY server kills the
+      //    detected process right before spawning `claude --resume`. This ensures
+      //    the sessions-index.json entry still exists when --resume looks it up.
       const res = await fetch("/api/tmux/sessions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -223,24 +225,19 @@ export function SessionsView() {
           name: detected.title ?? detected.name ?? detected.projectName,
           cwd: detected.cwd,
           resumeId: detected.sessionId,
+          killPid: detected.pid,
         }),
       });
       if (!res.ok) return;
       const newSession = await res.json();
       const newTabId = newSession.id as string;
 
-      // 2. Kill the detected session first so it disappears from the tab list
-      await fetch("/api/sessions", {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ pid: detected.pid }),
-      });
-
-      // 3. Refresh both lists so reconcileTabs sees the new tab and drops the old one
+      // 2. Refresh both lists so reconcileTabs sees the new MiClaw tab.
+      //    The detected session may still appear briefly until the PTY server
+      //    kills it; the next poll cycle will clean it up.
       await Promise.all([fetchTmuxSessions(), fetchSessions()]);
 
-      // 4. Switch the focused pane to the newly adopted session tab.
-      // Use the ref to get the latest layout (state may have changed during awaits).
+      // 3. Switch the focused pane to the newly adopted session tab.
       const layout = paneLayoutRef.current;
       if (layout) {
         const focusedId = layout.focusedPaneId;

@@ -125,6 +125,7 @@ interface ConnectWsOpts {
   allowedTools?: string;
   appendSystemPrompt?: string;
   worktree?: boolean;
+  killPid?: number;
 }
 
 function connectWs(
@@ -167,6 +168,7 @@ function connectWs(
           sessionId,
           cwd,
           resume: resumeId,
+          killPid: opts?.killPid,
           name,
           permissionMode: opts?.permissionMode,
           model: opts?.model,
@@ -214,9 +216,10 @@ interface MiclawTerminalProps {
   allowedTools?: string;
   appendSystemPrompt?: string;
   worktree?: boolean;
+  killPid?: number;
 }
 
-export function MiclawTerminal({ sessionId, cwd, resumeId, name, permissionMode, model, allowedTools, appendSystemPrompt, worktree }: MiclawTerminalProps) {
+export function MiclawTerminal({ sessionId, cwd, resumeId, name, permissionMode, model, allowedTools, appendSystemPrompt, worktree, killPid }: MiclawTerminalProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [error, setError] = useState<string | null>(null);
   const mountedRef = useRef(false);
@@ -330,7 +333,7 @@ export function MiclawTerminal({ sessionId, cwd, resumeId, name, permissionMode,
       lastRows = terminal.rows;
 
       // Connect/reconnect WebSocket if not connected
-      const wsOpts: ConnectWsOpts = { permissionMode, model, allowedTools, appendSystemPrompt, worktree };
+      const wsOpts: ConnectWsOpts = { permissionMode, model, allowedTools, appendSystemPrompt, worktree, killPid };
       if (!cached.ws || cached.ws.readyState === WebSocket.CLOSED) {
         connectWs(sessionId, cwd, cached, resumeId, name, wsOpts);
       } else {
@@ -396,7 +399,7 @@ export function MiclawTerminal({ sessionId, cwd, resumeId, name, permissionMode,
       resizeObserver?.disconnect();
       // DON'T dispose terminal or close WS -- they persist in cache
     };
-  }, [sessionId, cwd, resumeId, name, permissionMode, model, allowedTools, appendSystemPrompt, worktree]);
+  }, [sessionId, cwd, resumeId, name, permissionMode, model, allowedTools, appendSystemPrompt, worktree, killPid]);
 
   const [dragOver, setDragOver] = useState(false);
 
