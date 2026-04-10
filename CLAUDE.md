@@ -63,7 +63,7 @@ A visualization and editing dashboard for Claude Code configuration. Scans `~/.c
 - `src/lib/sessionScanner.ts` -- Scans `~/.claude/sessions/` PID files and reads JSONL logs from `~/.claude/projects/` to extract session metadata (title, git branch, turnState). Uses mtime-based caching. Computes `turnState: "idle" | "working" | "needs_input"` from the JSONL conversation state.
 - `src/lib/miclawSessions.ts` -- Manages MiClaw-owned sessions stored in `~/.claude/miclaw-sessions.json`.
 - `src/lib/paneTypes.ts` -- Type definitions for the tiling pane tree: `LeafPane`, `SplitPane`, `PaneNode`, `PaneLayout`.
-- `src/lib/paneUtils.ts` -- Pure functions for pane tree operations: `splitLeaf`, `removeLeaf`, `moveTab`, `updateRatio`, `reconcileTabs`, `saveLayout`/`loadLayout` (localStorage persistence).
+- `src/lib/paneUtils.ts` -- Pure functions for pane tree operations: `splitLeaf`, `removeLeaf`, `moveTab`, `moveTabs`, `collapseEmptyLeaves`, `updateRatio`, `reconcileTabs`, `saveLayout`/`loadLayout` (localStorage persistence).
 - `src/lib/paneContext.ts` -- React context providing pane layout state and mutation callbacks to all pane components.
 - `src/components/SessionsView.tsx` -- Orchestrator: data fetching, pane layout state, command mode, keyboard navigation. Provides `PaneCtx` and renders `PaneTree`.
 - `src/components/PaneTree.tsx` -- Recursive renderer: splits render as flex containers with `PaneDivider` between children; leaves render as `PaneLeaf`.
@@ -102,6 +102,8 @@ A visualization and editing dashboard for Claude Code configuration. Scans `~/.c
 - Terminal wrapped in memoized `StableTerminal` component to prevent re-renders from polling-driven status updates stealing focus.
 - `Shift+Esc` enters command mode. `h/l` cycle tabs, `j/k` cycle panes, `Enter` focuses the selected terminal. All commands require explicit command mode to prevent accidental execution when terminal loses focus.
 - `Alt+1-9` jumps to tabs without entering command mode.
+- Multi-select tabs with `Shift+click` or `Cmd+click`, then drag them as a group to another pane or edge zone.
+- Empty panes auto-collapse: when all tabs are moved out of a pane, it's removed and the parent split collapses.
 - Detected sessions poll at 7s with JSONL mtime caching. MiClaw sessions poll at 3s via PTY server WebSocket.
 - Turn state detection: `turnState: "idle" | "working" | "needs_input"` computed by finding the last assistant message in JSONL and checking for unmatched `tool_use` blocks. Non-tool-result user messages (task notifications) are skipped.
 - Adopt flow: creates a MiClaw session with `resumeId` pointing to the detected session's `sessionId`, kills the original detected process.

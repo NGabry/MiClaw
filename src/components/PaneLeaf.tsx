@@ -78,12 +78,15 @@ function StatusDot({ turnState, isAlive, size = "normal" }: {
 
 const DRAG_MIME = "application/x-miclaw-tab";
 
-function TabButton({ item, active, index, paneId, onClick }: {
+function TabButton({ item, active, selected, index, paneId, selectedTabIds, onClick, onMultiClick }: {
   item: TabItem;
   active: boolean;
+  selected: boolean;
   index: number;
   paneId: string;
+  selectedTabIds: string[];
   onClick: () => void;
+  onMultiClick: (e: React.MouseEvent) => void;
 }) {
   const alive = isTabAlive(item);
   const isMiclaw = item.type === "miclaw";
@@ -91,7 +94,9 @@ function TabButton({ item, active, index, paneId, onClick }: {
 
   function onDragStart(e: React.DragEvent) {
     e.dataTransfer.effectAllowed = "move";
-    e.dataTransfer.setData(DRAG_MIME, JSON.stringify({ tabId: tid, paneId }));
+    // Include all selected tabs if this tab is part of the selection
+    const extraIds = selected ? selectedTabIds.filter((id) => id !== tid) : [];
+    e.dataTransfer.setData(DRAG_MIME, JSON.stringify({ tabId: tid, paneId, extraTabIds: extraIds }));
     if (e.currentTarget instanceof HTMLElement) {
       e.currentTarget.style.opacity = "0.4";
     }
@@ -106,15 +111,23 @@ function TabButton({ item, active, index, paneId, onClick }: {
   return (
     <button
       draggable
-      onClick={onClick}
+      onClick={(e) => {
+        if (e.shiftKey || e.metaKey) {
+          onMultiClick(e);
+        } else {
+          onClick();
+        }
+      }}
       onDragStart={onDragStart}
       onDragEnd={onDragEnd}
-      title={`${tabName(item)}${index < 9 ? ` (${index + 1})` : ""}`}
+      title={`${tabName(item)}${index < 9 ? ` (${index + 1})` : ""}${"\n"}Shift+click to multi-select`}
       className={[
         "flex items-center gap-2 px-3 py-2 text-xs font-mono whitespace-nowrap shrink-0 border-b-2 transition-colors cursor-grab active:cursor-grabbing",
         active
           ? "border-accent text-text bg-surface-raised/40"
-          : "border-transparent hover:bg-surface-hover/30",
+          : selected
+            ? "border-accent/40 text-text bg-accent/10"
+            : "border-transparent hover:bg-surface-hover/30",
         alive ? "" : "opacity-40",
         isMiclaw ? "text-text" : "text-text-muted",
       ].join(" ")}
@@ -477,7 +490,7 @@ type Edge = "left" | "right" | "top" | "bottom";
 
 function EdgeDropZone({ edge, onDrop, visible }: {
   edge: Edge;
-  onDrop: (tabId: string, fromPaneId: string) => void;
+  onDrop: (tabId: string, fromPaneId: string, extraTabIds?: string[]) => void;
   visible: boolean;
 }) {
   const [hovering, setHovering] = useState(false);
@@ -513,7 +526,8 @@ function EdgeDropZone({ edge, onDrop, visible }: {
         setHovering(false);
         try {
           const data = JSON.parse(e.dataTransfer.getData(DRAG_MIME));
-          onDrop(data.tabId, data.paneId);
+          const extras: string[] = data.extraTabIds ?? [];
+          onDrop(data.tabId, data.paneId, extras.length > 0 ? extras : undefined);
         } catch { /* invalid drag data */ }
       }}
     />
@@ -551,6 +565,7 @@ export function PaneLeaf({ pane }: PaneLeafProps) {
 
   const isFocused = focusedPaneId === pane.id;
   const [isDraggingOver, setIsDraggingOver] = useState(false);
+  const [selectedTabIds, setSelectedTabIds] = useState<string[]>([]);
   const dragOverRef = useRef<string | null>(null);
 
   // Filter tabs for this pane
@@ -572,16 +587,18 @@ export function PaneLeaf({ pane }: PaneLeafProps) {
     setIsDraggingOver(false);
     try {
       const data = JSON.parse(e.dataTransfer.getData(DRAG_MIME));
+      const extras: string[] = data.extraTabIds ?? [];
+      const allDragged = new Set([data.tabId, ...extras]);
       if (data.paneId === pane.id) {
-        // Intra-pane reorder: move dragged tab to the end
-        const newOrder = pane.tabIds.filter((id) => id !== data.tabId);
-        // Insert at drop position (simplified: append)
-        newOrder.push(data.tabId);
+        // Intra-pane reorder: move dragged tabs to the end
+        const newOrder = pane.tabIds.filter((id) => !allDragged.has(id));
+        newOrder.push(data.tabId, ...extras);
         reorderTabs(pane.id, newOrder);
       } else {
         // Cross-pane move
-        moveTabToPane(data.tabId, data.paneId, pane.id);
+        moveTabToPane(data.tabId, data.paneId, pane.id, extras.length > 0 ? extras : undefined);
       }
+      setSelectedTabIds([]);
     } catch { /* invalid */ }
   }, [pane.id, pane.tabIds, reorderTabs, moveTabToPane]);
 
@@ -598,20 +615,23 @@ export function PaneLeaf({ pane }: PaneLeafProps) {
     setIsDraggingOver(false);
     try {
       const data = JSON.parse(e.dataTransfer.getData(DRAG_MIME));
+      const extras: string[] = data.extraTabIds ?? [];
+      const allDragged = new Set([data.tabId, ...extras]);
       if (data.paneId === pane.id) {
         // Intra-pane reorder
-        const ids = [...pane.tabIds];
-        const fromIdx = ids.indexOf(data.tabId);
+        const ids = pane.tabIds.filter((id) => !allDragged.has(id));
         const toIdx = ids.indexOf(targetTabId);
-        if (fromIdx >= 0 && toIdx >= 0 && fromIdx !== toIdx) {
-          ids.splice(fromIdx, 1);
-          ids.splice(toIdx, 0, data.tabId);
-          reorderTabs(pane.id, ids);
+        if (toIdx >= 0) {
+          ids.splice(toIdx, 0, data.tabId, ...extras);
+        } else {
+          ids.push(data.tabId, ...extras);
         }
+        reorderTabs(pane.id, ids);
       } else {
-        // Cross-pane: insert at target position
-        moveTabToPane(data.tabId, data.paneId, pane.id);
+        // Cross-pane: move to target pane
+        moveTabToPane(data.tabId, data.paneId, pane.id, extras.length > 0 ? extras : undefined);
       }
+      setSelectedTabIds([]);
     } catch { /* invalid */ }
   }, [pane.id, pane.tabIds, reorderTabs, moveTabToPane]);
 
@@ -655,25 +675,39 @@ export function PaneLeaf({ pane }: PaneLeafProps) {
             "flex items-center overflow-x-auto scrollbar-hide flex-1",
             isDraggingOver ? "bg-accent/5" : "",
           ].join(" ")}>
-            {paneTabs.map((item, i) => (
-              <div
-                key={tabId(item)}
-                onDragOver={(e) => handleTabDragOver(e, tabId(item))}
-                onDrop={(e) => handleTabDrop(e, tabId(item))}
-              >
-                <TabButton
-                  item={item}
-                  active={!isNewForm && tabId(item) === pane.activeTabId}
-                  index={i}
-                  paneId={pane.id}
-                  onClick={() => {
-                    setShowNewForm(pane.id, false);
-                    setActiveTab(pane.id, tabId(item));
-                    focusPane(pane.id);
-                  }}
-                />
-              </div>
-            ))}
+            {paneTabs.map((item, i) => {
+              const tid = tabId(item);
+              return (
+                <div
+                  key={tid}
+                  onDragOver={(e) => handleTabDragOver(e, tid)}
+                  onDrop={(e) => handleTabDrop(e, tid)}
+                >
+                  <TabButton
+                    item={item}
+                    active={!isNewForm && tid === pane.activeTabId}
+                    selected={selectedTabIds.includes(tid)}
+                    index={i}
+                    paneId={pane.id}
+                    selectedTabIds={selectedTabIds}
+                    onClick={() => {
+                      setSelectedTabIds([]);
+                      setShowNewForm(pane.id, false);
+                      setActiveTab(pane.id, tid);
+                      focusPane(pane.id);
+                    }}
+                    onMultiClick={() => {
+                      setSelectedTabIds((prev) =>
+                        prev.includes(tid)
+                          ? prev.filter((id) => id !== tid)
+                          : [...prev, tid],
+                      );
+                      focusPane(pane.id);
+                    }}
+                  />
+                </div>
+              );
+            })}
           </div>
 
           {/* Right side: split buttons, new, close */}
@@ -752,22 +786,22 @@ export function PaneLeaf({ pane }: PaneLeafProps) {
         <EdgeDropZone
           edge="left"
           visible={isDraggingOver}
-          onDrop={(tid, fromPid) => dropTabOnEdge(tid, fromPid, pane.id, "left")}
+          onDrop={(tid, fromPid, extras) => dropTabOnEdge(tid, fromPid, pane.id, "left", extras)}
         />
         <EdgeDropZone
           edge="right"
           visible={isDraggingOver}
-          onDrop={(tid, fromPid) => dropTabOnEdge(tid, fromPid, pane.id, "right")}
+          onDrop={(tid, fromPid, extras) => dropTabOnEdge(tid, fromPid, pane.id, "right", extras)}
         />
         <EdgeDropZone
           edge="top"
           visible={isDraggingOver}
-          onDrop={(tid, fromPid) => dropTabOnEdge(tid, fromPid, pane.id, "top")}
+          onDrop={(tid, fromPid, extras) => dropTabOnEdge(tid, fromPid, pane.id, "top", extras)}
         />
         <EdgeDropZone
           edge="bottom"
           visible={isDraggingOver}
-          onDrop={(tid, fromPid) => dropTabOnEdge(tid, fromPid, pane.id, "bottom")}
+          onDrop={(tid, fromPid, extras) => dropTabOnEdge(tid, fromPid, pane.id, "bottom", extras)}
         />
       </div>
     </div>

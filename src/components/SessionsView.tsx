@@ -6,13 +6,14 @@ import { disposeTerminal } from "./MiclawTerminal";
 import type { PaneLayout } from "@/lib/paneTypes";
 import {
   collectLeaves,
+  collapseEmptyLeaves,
   defaultLayout,
   loadLayout,
   reconcileTabs,
   saveLayout,
   splitLeaf,
   removeLeaf,
-  moveTab,
+  moveTabs,
   updateRatio,
   findLeaf,
 } from "@/lib/paneUtils";
@@ -354,9 +355,11 @@ export function SessionsView() {
     updateLayout({ root: updateNode(paneLayout.root), focusedPaneId: paneLayout.focusedPaneId });
   }, [paneLayout, updateLayout]);
 
-  const moveTabToPane = useCallback((tabId: string, fromPaneId: string, toPaneId: string) => {
+  const moveTabToPane = useCallback((tabId: string, fromPaneId: string, toPaneId: string, extraTabIds?: string[]) => {
     if (!paneLayout) return;
-    updateLayout(moveTab(paneLayout, tabId, fromPaneId, toPaneId));
+    const allIds = extraTabIds ? [tabId, ...extraTabIds] : [tabId];
+    const moved = moveTabs(paneLayout, allIds, fromPaneId, toPaneId);
+    updateLayout(collapseEmptyLeaves(moved));
   }, [paneLayout, updateLayout]);
 
   const dropTabOnEdge = useCallback((
@@ -364,6 +367,7 @@ export function SessionsView() {
     fromPaneId: string,
     toPaneId: string,
     edge: "left" | "right" | "top" | "bottom",
+    extraTabIds?: string[],
   ) => {
     if (!paneLayout) return;
     // Split the target pane in the appropriate direction
@@ -377,8 +381,9 @@ export function SessionsView() {
 
     if (!newLeaf) return;
 
-    // Move the tab to the new leaf
-    newLayout = moveTab(newLayout, tabId, fromPaneId, newLeaf.id);
+    // Move tabs to the new leaf
+    const allIds = extraTabIds ? [tabId, ...extraTabIds] : [tabId];
+    newLayout = moveTabs(newLayout, allIds, fromPaneId, newLeaf.id);
 
     // If edge is "left" or "top", we need to swap the children in the parent split
     if (edge === "left" || edge === "top") {
@@ -408,7 +413,7 @@ export function SessionsView() {
       newLayout = { ...newLayout, root: swapChildren(newLayout.root) };
     }
 
-    updateLayout(newLayout);
+    updateLayout(collapseEmptyLeaves(newLayout));
   }, [paneLayout, updateLayout]);
 
   const updateSplitRatio = useCallback((splitId: string, ratio: number) => {

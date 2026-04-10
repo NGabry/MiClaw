@@ -12,9 +12,13 @@ describe("GET /api/tmux/pty-server", () => {
     vi.resetAllMocks();
   });
 
-  it("returns running=true when PTY server is already running", async () => {
-    // lsof finds the server
-    vi.mocked(execSync).mockReturnValue("12345\n");
+  it("returns running=true when Node.js PTY server is already running", async () => {
+    vi.mocked(execSync).mockImplementation((cmd: unknown) => {
+      const cmdStr = String(cmd);
+      if (cmdStr.includes("lsof")) return "12345\n";
+      if (cmdStr.includes("ps -p")) return "node helpers/pty-server.mjs 3001";
+      return "";
+    });
 
     const response = await GET();
     const data = await response.json();
@@ -23,13 +27,30 @@ describe("GET /api/tmux/pty-server", () => {
     expect(data.port).toBe(3001);
   });
 
+  it("replaces stale non-Node PTY server on port", async () => {
+    vi.mocked(execSync).mockImplementation((cmd: unknown) => {
+      const cmdStr = String(cmd);
+      if (cmdStr.includes("lsof")) return "99999\n";
+      if (cmdStr.includes("ps -p")) return "python pty-server.py 3001";
+      // kill, chmod, start — all succeed
+      return "";
+    });
+
+    const response = await GET();
+    const data = await response.json();
+
+    expect(data.running).toBe(true);
+    // Should have called kill to remove stale server
+    const calls = vi.mocked(execSync).mock.calls.map((c) => String(c[0]));
+    expect(calls.some((c) => c.includes("kill"))).toBe(true);
+  });
+
   it("starts the PTY server when not running", async () => {
     let callCount = 0;
     vi.mocked(execSync).mockImplementation((cmd: unknown) => {
       callCount++;
       const cmdStr = String(cmd);
       if (cmdStr.includes("lsof")) {
-        // lsof check: server not running
         throw new Error("no process");
       }
       // ensureSpawnHelper chmod or server start — both succeed
@@ -40,7 +61,6 @@ describe("GET /api/tmux/pty-server", () => {
     const data = await response.json();
 
     expect(data.running).toBe(true);
-    // lsof (fail) + ensureSpawnHelper (chmod) + start server = 3 calls
     expect(callCount).toBeGreaterThanOrEqual(2);
   });
 

@@ -6,8 +6,13 @@ const PTY_PORT = 3001;
 
 function isRunning(): boolean {
   try {
-    execSync(`lsof -ti:${PTY_PORT}`, { encoding: "utf-8", timeout: 2000 });
-    return true;
+    // Verify the process on our port is actually the Node.js PTY server,
+    // not a stale Python server from an older install.
+    const pids = execSync(`lsof -ti:${PTY_PORT}`, { encoding: "utf-8", timeout: 2000 }).trim();
+    if (!pids) return false;
+    const pid = pids.split("\n")[0];
+    const cmd = execSync(`ps -p ${pid} -o command=`, { encoding: "utf-8", timeout: 2000 }).trim();
+    return cmd.includes("pty-server.mjs");
   } catch {
     return false;
   }
@@ -25,7 +30,17 @@ function ensureSpawnHelper(): void {
   } catch { /* best-effort */ }
 }
 
+function killStaleServer(): void {
+  try {
+    const pids = execSync(`lsof -ti:${PTY_PORT}`, { encoding: "utf-8", timeout: 2000 }).trim();
+    for (const pid of pids.split("\n")) {
+      if (pid) execSync(`kill ${pid}`, { timeout: 2000, stdio: "ignore" });
+    }
+  } catch { /* nothing on port */ }
+}
+
 function startServer(): void {
+  killStaleServer();
   ensureSpawnHelper();
   // Use execSync to launch detached — avoids Turbopack tracing spawn() arguments
   const root = process.cwd();

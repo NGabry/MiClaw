@@ -122,23 +122,35 @@ export function moveTab(
   fromPaneId: PaneId,
   toPaneId: PaneId,
 ): PaneLayout {
-  // Remove tab from source pane
+  return moveTabs(layout, [tabId], fromPaneId, toPaneId);
+}
+
+export function moveTabs(
+  layout: PaneLayout,
+  tabIds: string[],
+  fromPaneId: PaneId,
+  toPaneId: PaneId,
+): PaneLayout {
+  const moveSet = new Set(tabIds);
+  // Remove tabs from source pane
   let newRoot = mapNode(layout.root, fromPaneId, (node) => {
     if (node.type !== "leaf") return node;
-    const newTabIds = node.tabIds.filter((id) => id !== tabId);
+    const newTabIds = node.tabIds.filter((id) => !moveSet.has(id));
     return {
       ...node,
       tabIds: newTabIds,
-      activeTabId: node.activeTabId === tabId
+      activeTabId: node.activeTabId && moveSet.has(node.activeTabId)
         ? (newTabIds[0] ?? null)
         : node.activeTabId,
     };
   });
-  // Add tab to target pane
+  // Add tabs to target pane
+  const lastTabId = tabIds[tabIds.length - 1];
   newRoot = mapNode(newRoot, toPaneId, (node) => {
     if (node.type !== "leaf") return node;
-    if (node.tabIds.includes(tabId)) return node;
-    return { ...node, tabIds: [...node.tabIds, tabId], activeTabId: tabId };
+    const toAdd = tabIds.filter((id) => !node.tabIds.includes(id));
+    if (toAdd.length === 0) return node;
+    return { ...node, tabIds: [...node.tabIds, ...toAdd], activeTabId: lastTabId };
   });
   return { root: newRoot, focusedPaneId: layout.focusedPaneId };
 }
@@ -154,6 +166,28 @@ export function updateRatio(
     return { ...node, ratio: clamped };
   });
   return { root: newRoot, focusedPaneId: layout.focusedPaneId };
+}
+
+/**
+ * Remove any leaf panes with zero tabs. Collapses parent splits by promoting
+ * the sibling. Safe to call repeatedly — stops when only one leaf remains.
+ */
+export function collapseEmptyLeaves(layout: PaneLayout): PaneLayout {
+  function hasEmptyLeaf(node: PaneNode): boolean {
+    if (node.type === "leaf") return node.tabIds.length === 0;
+    return hasEmptyLeaf(node.children[0]) || hasEmptyLeaf(node.children[1]);
+  }
+
+  let current = layout;
+  while (current.root.type === "split" && hasEmptyLeaf(current.root)) {
+    const leaves = collectLeaves(current.root);
+    const empty = leaves.find((l) => l.tabIds.length === 0);
+    if (!empty) break;
+    const result = removeLeaf(current, empty.id);
+    if (!result) break;
+    current = result;
+  }
+  return current;
 }
 
 export function reconcileTabs(

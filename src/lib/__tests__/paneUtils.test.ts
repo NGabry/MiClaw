@@ -6,6 +6,8 @@ import {
   splitLeaf,
   removeLeaf,
   moveTab,
+  moveTabs,
+  collapseEmptyLeaves,
   updateRatio,
   reconcileTabs,
   saveLayout,
@@ -316,6 +318,82 @@ describe("moveTab", () => {
     };
     const result = moveTab(layout, "t1", "a", "b");
     expect(result.focusedPaneId).toBe("a");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// moveTabs
+// ---------------------------------------------------------------------------
+
+describe("moveTabs", () => {
+  it("moves multiple tabs from one pane to another", () => {
+    const a = makeLeaf("a", ["t1", "t2", "t3"], "t1");
+    const b = makeLeaf("b", ["t4"], "t4");
+    const layout: PaneLayout = {
+      root: makeSplit("s", "horizontal", a, b),
+      focusedPaneId: "a",
+    };
+    const result = moveTabs(layout, ["t1", "t3"], "a", "b");
+    const root = result.root as SplitPane;
+    const left = root.children[0] as LeafPane;
+    const right = root.children[1] as LeafPane;
+    expect(left.tabIds).toEqual(["t2"]);
+    expect(left.activeTabId).toBe("t2");
+    expect(right.tabIds).toEqual(["t4", "t1", "t3"]);
+    expect(right.activeTabId).toBe("t3");
+  });
+
+  it("leaves source empty when moving all tabs", () => {
+    const a = makeLeaf("a", ["t1", "t2"], "t1");
+    const b = makeLeaf("b", [], null);
+    const layout: PaneLayout = {
+      root: makeSplit("s", "horizontal", a, b),
+      focusedPaneId: "a",
+    };
+    const result = moveTabs(layout, ["t1", "t2"], "a", "b");
+    const left = (result.root as SplitPane).children[0] as LeafPane;
+    expect(left.tabIds).toEqual([]);
+    expect(left.activeTabId).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// collapseEmptyLeaves
+// ---------------------------------------------------------------------------
+
+describe("collapseEmptyLeaves", () => {
+  it("removes a pane that became empty after a move", () => {
+    const a = makeLeaf("a", [], null);
+    const b = makeLeaf("b", ["t1"], "t1");
+    const layout: PaneLayout = {
+      root: makeSplit("s", "horizontal", a, b),
+      focusedPaneId: "a",
+    };
+    const result = collapseEmptyLeaves(layout);
+    expect(result.root.type).toBe("leaf");
+    expect((result.root as LeafPane).id).toBe("b");
+    expect(result.focusedPaneId).toBe("b");
+  });
+
+  it("does not collapse when there is only one pane", () => {
+    const layout: PaneLayout = {
+      root: makeLeaf("a", [], null),
+      focusedPaneId: "a",
+    };
+    const result = collapseEmptyLeaves(layout);
+    expect(result.root.type).toBe("leaf");
+    expect((result.root as LeafPane).id).toBe("a");
+  });
+
+  it("does not collapse panes that have tabs", () => {
+    const a = makeLeaf("a", ["t1"], "t1");
+    const b = makeLeaf("b", ["t2"], "t2");
+    const layout: PaneLayout = {
+      root: makeSplit("s", "horizontal", a, b),
+      focusedPaneId: "a",
+    };
+    const result = collapseEmptyLeaves(layout);
+    expect(collectLeaves(result.root)).toHaveLength(2);
   });
 });
 

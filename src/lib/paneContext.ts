@@ -37,12 +37,13 @@ export interface PaneContextValue {
   focusPane: (paneId: string) => void;
   setActiveTab: (paneId: string, tabId: string) => void;
   reorderTabs: (paneId: string, tabIds: string[]) => void;
-  moveTabToPane: (tabId: string, fromPaneId: string, toPaneId: string) => void;
+  moveTabToPane: (tabId: string, fromPaneId: string, toPaneId: string, extraTabIds?: string[]) => void;
   dropTabOnEdge: (
     tabId: string,
     fromPaneId: string,
     toPaneId: string,
     edge: "left" | "right" | "top" | "bottom",
+    extraTabIds?: string[],
   ) => void;
   updateSplitRatio: (splitId: string, ratio: number) => void;
 

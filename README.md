@@ -36,7 +36,7 @@ One command. Local server, open port, browser launches. No cloud, no accounts, n
 The core of MiClaw. A tabbed, tiling terminal dashboard where you launch, monitor, and control every Claude Code instance on your machine.
 
 - **Launch sessions** -- spin up Claude Code in full interactive xterm.js terminals, right in your browser. Pick a working directory, set a model, configure permissions, and go.
-- **Split panes** -- view multiple sessions side-by-side or stacked. Split any pane horizontally or vertically. Drag tabs between panes to reorganize. Resize dividers to taste. Layout persists across refreshes.
+- **Split panes** -- view multiple sessions side-by-side or stacked. Split any pane horizontally or vertically. Drag tabs between panes to reorganize. Multi-select tabs with Shift/Cmd+click and drag them as a batch. Empty panes auto-collapse. Resize dividers to taste. Layout persists across refreshes.
 - **Monitor everything** -- see every running Claude session at a glance with real-time status indicators. Know instantly which sessions are working, which are waiting for input, and which are idle.
 - **Detect and adopt** -- MiClaw automatically discovers Claude Code sessions running in Terminal.app and mirrors their output. One click to **Adopt** any detected session into a fully managed MiClaw terminal.
 - **Drag and drop** -- drop files, folders, and screenshots directly onto a terminal. Folders resolve to their full path via Spotlight. Images are uploaded to temp files so Claude Code can read them.
