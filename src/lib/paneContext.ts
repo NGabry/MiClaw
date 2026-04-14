@@ -12,6 +12,7 @@ import type { MiclawSession } from "./miclawSessions";
 export interface MiclawSessionWithStatus extends MiclawSession {
   alive: boolean;
   activity?: string;
+  turnState?: "idle" | "working" | "needs_input";
   costUSD?: number;
   inputTokens?: number;
   outputTokens?: number;

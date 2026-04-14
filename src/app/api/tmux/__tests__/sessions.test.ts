@@ -64,7 +64,7 @@ describe("GET /api/tmux/sessions", () => {
     vi.mocked(getSessionCost).mockResolvedValue({});
   });
 
-  it("returns annotated sessions with PTY info", async () => {
+  it("returns annotated sessions with PTY info and turnState", async () => {
     vi.mocked(listSessions).mockReturnValue([
       {
         id: "miclaw-test",
@@ -82,6 +82,7 @@ describe("GET /api/tmux/sessions", () => {
       costUSD: 0.05,
       inputTokens: 1000,
       outputTokens: 500,
+      turnState: "working",
     });
 
     const response = await GET();
@@ -91,6 +92,7 @@ describe("GET /api/tmux/sessions", () => {
     expect(data[0].alive).toBe(true);
     expect(data[0].displayName).toBe("My Project");
     expect(data[0].costUSD).toBe(0.05);
+    expect(data[0].turnState).toBe("working");
   });
 
   it("defaults to not-alive when PTY server is unreachable", async () => {
@@ -117,6 +119,64 @@ describe("GET /api/tmux/sessions", () => {
     const response = await GET();
     const data = await response.json();
     expect(data[0].alive).toBe(false);
+  });
+
+  it("falls back to stored name when PTY title is generic 'Claude Code'", async () => {
+    vi.mocked(listSessions).mockReturnValue([
+      { id: "miclaw-desktop", displayName: "DESKTOP", cwd: "/test", created: 0 },
+    ]);
+
+    mockPtyWebSocket([
+      { sessionId: "miclaw-desktop", alive: true, title: "✳ Claude Code", activity: "idle" },
+    ]);
+
+    const response = await GET();
+    const data = await response.json();
+    expect(data[0].displayName).toBe("DESKTOP");
+  });
+
+  it("strips Unicode ✳ prefix from PTY title", async () => {
+    vi.mocked(listSessions).mockReturnValue([
+      { id: "miclaw-test", displayName: "test", cwd: "/test", created: 0 },
+    ]);
+
+    mockPtyWebSocket([
+      { sessionId: "miclaw-test", alive: true, title: "✳ My Custom Title", activity: "idle" },
+    ]);
+
+    const response = await GET();
+    const data = await response.json();
+    expect(data[0].displayName).toBe("My Custom Title");
+  });
+
+  it("strips accumulated ASCII * prefixes from PTY title", async () => {
+    vi.mocked(listSessions).mockReturnValue([
+      { id: "miclaw-test", displayName: "test", cwd: "/test", created: 0 },
+    ]);
+
+    mockPtyWebSocket([
+      { sessionId: "miclaw-test", alive: true, title: "* * * GENERAL", activity: "idle" },
+    ]);
+
+    const response = await GET();
+    const data = await response.json();
+    expect(data[0].displayName).toBe("GENERAL");
+  });
+
+  it("defaults turnState to idle when no cost data", async () => {
+    vi.mocked(listSessions).mockReturnValue([
+      { id: "miclaw-test", displayName: "test", cwd: "/test", created: 0 },
+    ]);
+
+    mockPtyWebSocket([
+      { sessionId: "miclaw-test", alive: true, title: "", activity: "idle" },
+    ]);
+
+    vi.mocked(getSessionCost).mockResolvedValue({});
+
+    const response = await GET();
+    const data = await response.json();
+    expect(data[0].turnState).toBe("idle");
   });
 
   it("persists discovered claudeSessionId", async () => {

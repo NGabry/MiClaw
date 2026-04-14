@@ -97,6 +97,8 @@ interface CachedTerminal {
   fitAddon: import("@xterm/addon-fit").FitAddon;
   ws: WebSocket | null;
   batchWrite: (data: string) => void;
+  /** Set after first successful spawn/reconnect — suppresses --name on respawn */
+  hasSpawned?: boolean;
 }
 
 const terminalCache = new Map<string, CachedTerminal>();
@@ -161,6 +163,7 @@ function connectWs(
       const msg = JSON.parse(event.data);
 
       if (msg.type === "session:spawned" && msg.sessionId === sessionId) {
+        cached.hasSpawned = true;
         ws.send(JSON.stringify({
           type: "terminal:resize",
           sessionId,
@@ -168,13 +171,16 @@ function connectWs(
           rows: cached.terminal.rows,
         }));
       } else if (msg.type === "session:not_found" && msg.sessionId === sessionId) {
+        // Only pass --name on the first creation. On respawn (hasSpawned),
+        // omit it so Claude CLI uses the session's existing title — prevents
+        // the "* * * * GENERAL" accumulation bug.
         ws.send(JSON.stringify({
           type: "session:create",
           sessionId,
           cwd,
           resume: resumeId,
           killPid: opts?.killPid,
-          name,
+          name: cached.hasSpawned ? undefined : name,
           permissionMode: opts?.permissionMode,
           model: opts?.model,
           allowedTools: opts?.allowedTools,
@@ -182,6 +188,7 @@ function connectWs(
           worktree: opts?.worktree,
         }));
       } else if (msg.type === "session:created") {
+        cached.hasSpawned = true;
         ws.send(JSON.stringify({
           type: "terminal:resize",
           sessionId,
@@ -249,16 +256,20 @@ export function MiclawTerminal({ sessionId, cwd, resumeId, name, permissionMode,
     let lastRows = 0;
 
     async function init() {
-      // Ensure PTY server is running
-      await fetch("/api/tmux/pty-server").catch(() => {});
+      let cached = terminalCache.get(sessionId);
+
+      if (!cached) {
+        // Only ensure PTY server on first creation — not on tab-switch reattach.
+        // The pty-server route's isRunning() check can false-positive and restart
+        // the server, killing all active sessions.
+        await fetch("/api/tmux/pty-server").catch(() => {});
+      }
       await document.fonts.ready;
       if (cancelled) return;
 
       // Fetch user's terminal palette before checking cache so first creation uses it
       const palette = await fetchPalette();
       if (cancelled) return;
-
-      let cached = terminalCache.get(sessionId);
 
       if (!cached) {
         // Create new terminal instance

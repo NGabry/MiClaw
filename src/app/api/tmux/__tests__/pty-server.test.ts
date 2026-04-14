@@ -45,6 +45,25 @@ describe("GET /api/tmux/pty-server", () => {
     expect(calls.some((c) => c.includes("kill"))).toBe(true);
   });
 
+  it("checks ALL PIDs on port — does not restart when PTY server is second PID", async () => {
+    // lsof returns Next.js PID first, PTY server PID second
+    vi.mocked(execSync).mockImplementation((cmd: unknown) => {
+      const cmdStr = String(cmd);
+      if (cmdStr.includes("lsof")) return "4404\n69749\n";
+      if (cmdStr.includes("ps -p 4404")) return "node /path/to/next dev";
+      if (cmdStr.includes("ps -p 69749")) return "node helpers/pty-server.mjs 3001";
+      return "";
+    });
+
+    const response = await GET();
+    const data = await response.json();
+
+    expect(data.running).toBe(true);
+    // Should NOT have called kill — server is alive on second PID
+    const calls = vi.mocked(execSync).mock.calls.map((c) => String(c[0]));
+    expect(calls.some((c) => c.includes("kill"))).toBe(false);
+  });
+
   it("starts the PTY server when not running", async () => {
     let callCount = 0;
     vi.mocked(execSync).mockImplementation((cmd: unknown) => {

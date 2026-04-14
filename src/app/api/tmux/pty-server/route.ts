@@ -6,13 +6,20 @@ const PTY_PORT = 3001;
 
 function isRunning(): boolean {
   try {
-    // Verify the process on our port is actually the Node.js PTY server,
-    // not a stale Python server from an older install.
+    // lsof returns ALL PIDs with an fd on this port — the PTY server itself
+    // plus any WebSocket clients (e.g. Next.js API routes). Check ALL of them
+    // so we don't mistake a client PID for a missing server and nuke sessions.
     const pids = execSync(`lsof -ti:${PTY_PORT}`, { encoding: "utf-8", timeout: 2000 }).trim();
     if (!pids) return false;
-    const pid = pids.split("\n")[0];
-    const cmd = execSync(`ps -p ${pid} -o command=`, { encoding: "utf-8", timeout: 2000 }).trim();
-    return cmd.includes("pty-server.mjs");
+    for (const line of pids.split("\n")) {
+      const pid = line.trim();
+      if (!pid) continue;
+      try {
+        const cmd = execSync(`ps -p ${pid} -o command=`, { encoding: "utf-8", timeout: 2000 }).trim();
+        if (cmd.includes("pty-server.mjs")) return true;
+      } catch { /* pid vanished between lsof and ps */ }
+    }
+    return false;
   } catch {
     return false;
   }

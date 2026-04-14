@@ -171,11 +171,12 @@ describe("getSessionCost", () => {
     vi.resetAllMocks();
   });
 
-  it("returns empty cost when no JSONL found", async () => {
+  it("returns empty cost and idle turnState when no JSONL found", async () => {
     vi.mocked(fs.readdir).mockRejectedValue(new Error("ENOENT"));
     const result = await getSessionCost("nonexistent");
     expect(result.costUSD).toBeUndefined();
     expect(result.inputTokens).toBeUndefined();
     expect(result.outputTokens).toBeUndefined();
+    expect(result.turnState).toBe("idle");
   });
 });

@@ -402,12 +402,13 @@ export async function killSession(pid: number): Promise<boolean> {
   }
 }
 
-/** Get cost/token data for a session by its Claude session ID (used by MiClaw sessions) */
+/** Get cost/token/turnState data for a session by its Claude session ID (used by MiClaw sessions) */
 export async function getSessionCost(sessionId: string): Promise<{
   costUSD?: number;
   inputTokens?: number;
   outputTokens?: number;
   contextTokens?: number;
+  turnState?: "idle" | "working" | "needs_input";
 }> {
   const data = await readJsonlTail(sessionId);
   return {
@@ -415,5 +416,6 @@ export async function getSessionCost(sessionId: string): Promise<{
     inputTokens: data.inputTokens,
     outputTokens: data.outputTokens,
     contextTokens: data.contextTokens,
+    turnState: data.turnState,
   };
 }

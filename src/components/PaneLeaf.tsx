@@ -41,7 +41,10 @@ function isTabAlive(item: TabItem): boolean {
 
 function tabTurnState(item: TabItem): "idle" | "working" | "needs_input" {
   if (item.type === "detected") return item.session.turnState;
+  // PTY actively producing output is the strongest signal
   if (item.type === "miclaw" && item.session.activity === "producing_output") return "working";
+  // Fall back to JSONL-based turn state (survives thinking pauses where PTY is silent)
+  if (item.type === "miclaw" && item.session.turnState) return item.session.turnState;
   return "idle";
 }
 
@@ -295,7 +298,7 @@ function MiclawSessionContent({ session, onKill }: {
       <div className="shrink-0 flex items-center justify-between px-4 py-2 border-b border-white/[0.04] bg-white/[0.03] backdrop-blur-sm">
         <div className="flex items-center gap-3 text-[11px] font-mono text-text-dim">
           <StatusDot
-            turnState={session.activity === "producing_output" ? "working" : "idle"}
+            turnState={session.activity === "producing_output" ? "working" : (session.turnState ?? "idle")}
             isAlive={session.alive}
             size="small"
           />

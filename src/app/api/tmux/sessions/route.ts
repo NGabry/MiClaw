@@ -14,6 +14,18 @@ interface PtySessionInfo {
   claudeSessionId?: string;
 }
 
+/** Use PTY title as displayName, but prefer the stored name over generic
+ *  CLI defaults like "Claude Code". Also strip leading star prefixes
+ *  (both ASCII * and Unicode ✳) that Claude CLI adds on --resume. */
+function ptyDisplayName(ptyTitle: string | undefined, stored: string): string {
+  if (!ptyTitle || ptyTitle === "") return stored;
+  // Strip leading star prefixes: ASCII "* " and Unicode "✳ " (U+2733)
+  const stripped = ptyTitle.replace(/^([*✳]\s*)+/, "").trim();
+  // If the remaining title is the generic CLI default, prefer the stored name
+  if (!stripped || stripped === "Claude Code") return stored;
+  return stripped;
+}
+
 /** Query the PTY server for session status and titles */
 async function getPtySessionInfo(): Promise<Map<string, PtySessionInfo>> {
   return new Promise((resolve) => {
@@ -67,8 +79,9 @@ export async function GET() {
       ...s,
       claudeSessionId,
       alive: info?.alive ?? false,
-      displayName: (info?.title && info.title !== "") ? info.title : s.displayName,
+      displayName: ptyDisplayName(info?.title, s.displayName),
       activity: info?.activity ?? "unknown",
+      turnState: cost.turnState ?? "idle",
       costUSD: cost.costUSD,
       inputTokens: cost.inputTokens,
       outputTokens: cost.outputTokens,
