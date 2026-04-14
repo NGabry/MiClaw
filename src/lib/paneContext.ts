@@ -15,6 +15,7 @@ export interface MiclawSessionWithStatus extends MiclawSession {
   costUSD?: number;
   inputTokens?: number;
   outputTokens?: number;
+  contextTokens?: number;
 }
 
 export type TabItem =

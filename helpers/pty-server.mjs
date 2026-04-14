@@ -122,21 +122,31 @@ function discoverClaudeSessionId(session) {
 // PTY spawning
 // ---------------------------------------------------------------------------
 
-function buildCmdParts(opts) {
-  const cmdParts = ['claude'];
-  if (opts.resume) cmdParts.push('--resume', opts.resume);
-  if (opts.name) cmdParts.push('--name', opts.name);
-  if (opts.permissionMode) cmdParts.push('--permission-mode', opts.permissionMode);
-  if (opts.model) cmdParts.push('--model', opts.model);
-  if (opts.allowedTools) cmdParts.push('--allowedTools', opts.allowedTools);
-  if (opts.appendSystemPrompt) cmdParts.push('--append-system-prompt', opts.appendSystemPrompt);
-  if (opts.worktree) cmdParts.push('--worktree');
-  return cmdParts;
+function buildCmdArgs(opts) {
+  const args = [];
+  if (opts.resume) args.push('--resume', opts.resume);
+  if (opts.name) args.push('--name', opts.name);
+  if (opts.permissionMode) args.push('--permission-mode', opts.permissionMode);
+  if (opts.model) args.push('--model', opts.model);
+  if (opts.allowedTools) args.push('--allowedTools', opts.allowedTools);
+  if (opts.appendSystemPrompt) args.push('--append-system-prompt', opts.appendSystemPrompt);
+  if (opts.worktree) args.push('--worktree');
+  return args;
+}
+
+/** Shell-escape a single argument (single-quote wrapping). */
+function shellEscape(s) {
+  // Safe chars need no quoting
+  if (/^[a-zA-Z0-9._:/@=+-]+$/.test(s)) return s;
+  return "'" + s.replace(/'/g, "'\\''") + "'";
 }
 
 function spawnPty(sessionId, opts, cols, rows) {
   const shell = process.env.SHELL || '/bin/zsh';
-  const cmdParts = buildCmdParts(opts);
+  const args = buildCmdArgs(opts);
+  // Build a properly-quoted shell command to ensure spaces/special chars
+  // in names, prompts, etc. are not misinterpreted by the shell.
+  const cmd = ['claude', ...args].map(shellEscape).join(' ');
 
   const cwd = opts.cwd || homedir();
   const env = { ...process.env, TERM: 'xterm-256color', COLORTERM: 'truecolor', CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS: '1' };
@@ -150,7 +160,7 @@ function spawnPty(sessionId, opts, cols, rows) {
 
   let ptyProcess;
   try {
-    ptyProcess = spawn(shell, ['-c', cmdParts.join(' ')], {
+    ptyProcess = spawn(shell, ['-c', cmd], {
       name: 'xterm-256color',
       cols,
       rows,
@@ -215,9 +225,14 @@ function spawnPty(sessionId, opts, cols, rows) {
     if (opts.resume && exitCode !== 0 && (Date.now() - spawnTime) < 5000) {
       console.error(`[PTY] --resume failed for ${sessionId} (code ${exitCode}), retrying without --resume`);
       const fallbackOpts = { ...opts, resume: undefined, killPid: undefined };
-      const fallbackSession = spawnPty(sessionId, fallbackOpts, cols, rows);
-      if (fallbackSession) {
-        broadcast(sessionId, { type: 'session:spawned', sessionId, pid: fallbackSession.process.pid });
+      try {
+        const fallbackSession = spawnPty(sessionId, fallbackOpts, cols, rows);
+        if (fallbackSession) {
+          broadcast(sessionId, { type: 'session:spawned', sessionId, pid: fallbackSession.process.pid });
+        }
+      } catch (fallbackErr) {
+        console.error(`[PTY] Fallback spawn also failed for ${sessionId}:`, fallbackErr);
+        broadcast(sessionId, { type: 'session:exited', sessionId, exitCode });
       }
       return;
     }

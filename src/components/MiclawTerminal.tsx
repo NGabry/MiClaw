@@ -128,6 +128,8 @@ interface ConnectWsOpts {
   killPid?: number;
 }
 
+const MAX_RECONNECT_ATTEMPTS = 8;
+
 function connectWs(
   sessionId: string,
   cwd: string,
@@ -135,6 +137,7 @@ function connectWs(
   resumeId?: string,
   name?: string,
   opts?: ConnectWsOpts,
+  reconnectAttempt: number = 0,
 ) {
   // Close existing connection without triggering auto-reconnect
   if (cached.ws) {
@@ -148,6 +151,8 @@ function connectWs(
   cached.ws = ws;
 
   ws.onopen = () => {
+    // Successful connection resets the backoff counter
+    reconnectAttempt = 0;
     ws.send(JSON.stringify({ type: "session:reconnect", sessionId }));
   };
 
@@ -195,11 +200,19 @@ function connectWs(
   };
 
   ws.onclose = () => {
+    if (!terminalCache.has(sessionId)) return;
+    const attempt = reconnectAttempt + 1;
+    if (attempt > MAX_RECONNECT_ATTEMPTS) {
+      cached.terminal.write("\r\n\x1b[1;31m[MiClaw]\x1b[0m \x1b[31mReconnect failed after " + MAX_RECONNECT_ATTEMPTS + " attempts. Click the terminal to retry.\x1b[0m\r\n");
+      return;
+    }
+    // Exponential backoff: 2s, 4s, 8s, 16s... capped at 30s
+    const delay = Math.min(2000 * Math.pow(2, attempt - 1), 30000);
     setTimeout(() => {
       if (terminalCache.has(sessionId)) {
-        connectWs(sessionId, cwd, cached, resumeId, name, opts);
+        connectWs(sessionId, cwd, cached, resumeId, name, opts, attempt);
       }
-    }, 2000);
+    }, delay);
   };
 
   ws.onerror = () => {};

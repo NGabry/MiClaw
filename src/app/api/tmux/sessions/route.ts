@@ -72,6 +72,7 @@ export async function GET() {
       costUSD: cost.costUSD,
       inputTokens: cost.inputTokens,
       outputTokens: cost.outputTokens,
+      contextTokens: cost.contextTokens,
     };
   }));
 

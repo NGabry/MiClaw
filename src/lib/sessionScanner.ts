@@ -19,6 +19,7 @@ const jsonlCache = new Map<string, {
     costUSD?: number;
     inputTokens?: number;
     outputTokens?: number;
+    contextTokens?: number;
   };
   mtime: number;
 }>();
@@ -47,6 +48,7 @@ export interface ActiveSession {
   costUSD?: number;
   inputTokens?: number;
   outputTokens?: number;
+  contextTokens?: number;
 }
 
 export interface SessionMessage {
@@ -164,6 +166,7 @@ async function readJsonlTail(sessionId: string): Promise<{
   costUSD?: number;
   inputTokens?: number;
   outputTokens?: number;
+  contextTokens?: number;
 }> {
   // Find the JSONL file across all project directories
   try {
@@ -279,6 +282,7 @@ async function readJsonlTail(sessionId: string): Promise<{
           let totalCacheRead = 0;
           let totalCacheCreate = 0;
           let hasUsageData = false;
+          let contextTokens: number | undefined;
 
           for (let i = lines.length - 1; i >= 0; i--) {
             try {
@@ -286,6 +290,10 @@ async function readJsonlTail(sessionId: string): Promise<{
               if (entry.type === "assistant" && entry.message?.usage) {
                 const u = entry.message.usage;
                 if (typeof u.input_tokens === "number") {
+                  // The most recent assistant message's total input = current context window size
+                  if (contextTokens === undefined) {
+                    contextTokens = u.input_tokens + (u.cache_read_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0);
+                  }
                   totalInputTokens += u.input_tokens;
                   totalOutputTokens += (u.output_tokens ?? 0);
                   totalCacheRead += (u.cache_read_input_tokens ?? 0);
@@ -306,7 +314,7 @@ async function readJsonlTail(sessionId: string): Promise<{
           const inputTokens = hasUsageData ? (totalInputTokens + totalCacheRead + totalCacheCreate) : undefined;
           const outputTokens = hasUsageData ? totalOutputTokens : undefined;
 
-          const result = { title, gitBranch, lastPrompt, recentMessages, lastModified: stat.mtimeMs, turnState, costUSD, inputTokens, outputTokens };
+          const result = { title, gitBranch, lastPrompt, recentMessages, lastModified: stat.mtimeMs, turnState, costUSD, inputTokens, outputTokens, contextTokens };
           jsonlCache.set(sessionId, { data: result, mtime: stat.mtimeMs });
           return result;
         } finally {
@@ -320,7 +328,7 @@ async function readJsonlTail(sessionId: string): Promise<{
     // PROJECTS_DIR doesn't exist
   }
 
-  return { recentMessages: [], turnState: "idle" as const, costUSD: undefined, inputTokens: undefined, outputTokens: undefined };
+  return { recentMessages: [], turnState: "idle" as const, costUSD: undefined, inputTokens: undefined, outputTokens: undefined, contextTokens: undefined };
 }
 
 export async function scanActiveSessions(): Promise<ActiveSession[]> {
@@ -365,6 +373,7 @@ export async function scanActiveSessions(): Promise<ActiveSession[]> {
             costUSD: jsonlData.costUSD,
             inputTokens: jsonlData.inputTokens,
             outputTokens: jsonlData.outputTokens,
+            contextTokens: jsonlData.contextTokens,
           });
         } catch {
           // Skip unparseable PID files
@@ -398,11 +407,13 @@ export async function getSessionCost(sessionId: string): Promise<{
   costUSD?: number;
   inputTokens?: number;
   outputTokens?: number;
+  contextTokens?: number;
 }> {
   const data = await readJsonlTail(sessionId);
   return {
     costUSD: data.costUSD,
     inputTokens: data.inputTokens,
     outputTokens: data.outputTokens,
+    contextTokens: data.contextTokens,
   };
 }

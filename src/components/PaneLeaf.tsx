@@ -184,6 +184,15 @@ function DetectedSessionContent({ session, onAdopt, onKill }: {
                   </span>
                 )}
                 <span>PID {session.pid}</span>
+                {session.costUSD != null && session.costUSD > 0 && (
+                  <span className="text-text-muted">{formatCost(session.costUSD)}</span>
+                )}
+                {session.inputTokens != null && session.inputTokens > 0 && (
+                  <span>{formatTokens(session.inputTokens)} in / {formatTokens(session.outputTokens ?? 0)} out</span>
+                )}
+                {session.contextTokens != null && session.contextTokens > 0 && (
+                  <span className="text-text-muted" title="Active context window size">ctx {formatTokens(session.contextTokens)}</span>
+                )}
               </div>
             </div>
           </div>
@@ -304,6 +313,11 @@ function MiclawSessionContent({ session, onKill }: {
           {session.inputTokens != null && session.inputTokens > 0 && (
             <span className="text-text-dim">
               {formatTokens(session.inputTokens)} in / {formatTokens(session.outputTokens ?? 0)} out
+            </span>
+          )}
+          {session.contextTokens != null && session.contextTokens > 0 && (
+            <span className="text-text-muted" title="Active context window size">
+              ctx {formatTokens(session.contextTokens)}
             </span>
           )}
           {session.claudeSessionId && (
