@@ -25,6 +25,16 @@ test.describe("Navigation & Page Load", () => {
     await expect(page.getByText("Shift+Esc")).toBeVisible({ timeout: 15_000 });
   });
 
+  test("history page loads with stats and session list", async ({ page }) => {
+    await page.goto("/history");
+    await expect(page.getByText("History")).toBeVisible({ timeout: 15_000 });
+    // Stats cards should render
+    await expect(page.getByText("SESSIONS")).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText("EST. COST")).toBeVisible();
+    // Search input should be present
+    await expect(page.getByPlaceholder("Search sessions...")).toBeVisible();
+  });
+
   test("all config pages load without errors", async ({ page }) => {
     const pages = ["/agents", "/skills", "/commands", "/mcp", "/hooks", "/settings", "/rules"];
 

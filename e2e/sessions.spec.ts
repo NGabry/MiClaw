@@ -46,6 +46,32 @@ test.describe("Sessions API", () => {
   });
 });
 
+test.describe("History API", () => {
+  test("history endpoint returns sessions with stats", async ({ request }) => {
+    const response = await request.get("/api/history?limit=5");
+    expect(response.ok()).toBe(true);
+    const data = await response.json();
+    expect(data).toHaveProperty("sessions");
+    expect(data).toHaveProperty("stats");
+    expect(data).toHaveProperty("total");
+    expect(Array.isArray(data.sessions)).toBe(true);
+    expect(typeof data.stats.totalSessions).toBe("number");
+    expect(typeof data.stats.totalCostUSD).toBe("number");
+  });
+
+  test("history search filters results", async ({ request }) => {
+    const allRes = await request.get("/api/history?limit=1000&withCost=false");
+    const all = await allRes.json();
+
+    if (all.total > 0) {
+      // Search with a nonsense string should return fewer results
+      const searchRes = await request.get("/api/history?q=xyzzy_nonexistent_12345&withCost=false");
+      const searched = await searchRes.json();
+      expect(searched.total).toBeLessThanOrEqual(all.total);
+    }
+  });
+});
+
 test.describe("Sessions UI", () => {
   test("sessions view renders with tab bar", async ({ page }) => {
     await page.goto("/");

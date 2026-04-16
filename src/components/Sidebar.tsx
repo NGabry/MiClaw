@@ -12,10 +12,12 @@ import {
   Plug,
   Webhook,
   Activity,
+  History,
 } from "lucide-react";
 
 const NAV_ITEMS = [
   { href: "/", label: "Sessions", icon: Activity },
+  { href: "/history", label: "History", icon: History },
   { href: "/overview", label: "Overview", icon: LayoutDashboard },
   { href: "/rules", label: "Rules", icon: FileText },
   { href: "/agents", label: "Agents", icon: Bot },

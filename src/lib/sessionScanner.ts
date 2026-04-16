@@ -1,6 +1,7 @@
 import fs from "fs/promises";
 import path from "path";
 import { CLAUDE_DIR, PROJECTS_DIR } from "./constants";
+import { estimateCostUSD } from "./pricing";
 
 const SESSIONS_DIR = path.join(CLAUDE_DIR, "sessions");
 
@@ -283,6 +284,7 @@ async function readJsonlTail(sessionId: string): Promise<{
           let totalCacheCreate = 0;
           let hasUsageData = false;
           let contextTokens: number | undefined;
+          let sessionModel: string | undefined;
 
           for (let i = lines.length - 1; i >= 0; i--) {
             try {
@@ -290,6 +292,9 @@ async function readJsonlTail(sessionId: string): Promise<{
               if (entry.type === "assistant" && entry.message?.usage) {
                 const u = entry.message.usage;
                 if (typeof u.input_tokens === "number") {
+                  if (!sessionModel && entry.message.model) {
+                    sessionModel = entry.message.model;
+                  }
                   // The most recent assistant message's total input = current context window size
                   if (contextTokens === undefined) {
                     contextTokens = u.input_tokens + (u.cache_read_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0);
@@ -304,12 +309,9 @@ async function readJsonlTail(sessionId: string): Promise<{
             } catch { /* skip */ }
           }
 
-          // Estimate cost from token counts (Sonnet pricing)
-          // input_tokens is non-cached input at $3/MTok
-          // cache_read at $0.30/MTok, cache_create at $3.75/MTok
-          // output at $15/MTok
+          // Model-aware cost estimation
           const costUSD = hasUsageData
-            ? (totalInputTokens * 3 + totalCacheRead * 0.3 + totalCacheCreate * 3.75 + totalOutputTokens * 15) / 1_000_000
+            ? estimateCostUSD(totalInputTokens, totalCacheRead, totalCacheCreate, totalOutputTokens, sessionModel)
             : undefined;
           const inputTokens = hasUsageData ? (totalInputTokens + totalCacheRead + totalCacheCreate) : undefined;
           const outputTokens = hasUsageData ? totalOutputTokens : undefined;

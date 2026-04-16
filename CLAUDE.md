@@ -81,11 +81,17 @@ A visualization and editing dashboard for Claude Code configuration. Scans `~/.c
 - `src/app/api/tmux/pty-server/route.ts` -- Ensures the Node.js PTY server is running.
 - `helpers/pty-server.mjs` -- Node.js + node-pty WebSocket PTY server (port 3001). Manages real PTY processes, survives Next.js restarts. Auto-discovers Claude session IDs from PID files.
 
+### History feature (session history + usage dashboard)
+- `src/lib/historyScanner.ts` -- Reads `sessions-index.json` from all `~/.claude/projects/` directories for fast session listing. Enriches with cost/token data from JSONL files using mtime-based caching. Supports search, project filter, and pagination.
+- `src/app/api/history/route.ts` -- GET returns paginated session history with stats. Query params: `q` (search), `project` (filter), `limit`, `offset`, `withCost`.
+- `src/components/HistoryView.tsx` -- Client component: stat cards (total sessions, cost, tokens), searchable/filterable session list, expandable detail view, pagination. Model-aware color coding (Opus=purple, Sonnet=cyan, Haiku=green).
+
 ### API routes (additional)
 - `src/app/api/health/route.ts` -- GET returns health check status (claude CLI, node-pty, PTY server, Node.js version).
 
 ### Pages
 - `src/app/page.tsx` -- Sessions page (home).
+- `src/app/history/page.tsx` -- Session history, search, and usage dashboard.
 - `src/app/agents/page.tsx` -- Agents detail page.
 - `src/app/skills/page.tsx` -- Skills detail page.
 - `src/app/commands/page.tsx` -- Commands detail page.
