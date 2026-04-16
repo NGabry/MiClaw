@@ -77,12 +77,8 @@ function formatModel(model?: string): string {
   return model.split("-").pop() ?? model;
 }
 
-function modelColor(model?: string): string {
-  if (!model) return "text-text-dim";
-  if (model.includes("opus")) return "text-purple-400";
-  if (model.includes("sonnet")) return "text-cyan-400";
-  if (model.includes("haiku")) return "text-green-400";
-  return "text-text-dim";
+function modelColor(): string {
+  return "text-accent";
 }
 
 // ---------------------------------------------------------------------------
@@ -134,7 +130,7 @@ function SessionRow({ session, expanded, onToggle }: {
               {session.projectName}
             </span>
             {session.model && (
-              <span className={`text-[10px] font-mono ${modelColor(session.model)}`}>
+              <span className={`text-[10px] font-mono ${modelColor()}`}>
                 {formatModel(session.model)}
               </span>
             )}
@@ -203,7 +199,7 @@ function SessionRow({ session, expanded, onToggle }: {
               {session.model && (
                 <div>
                   <span className="text-text-dim">Model:</span>{" "}
-                  <span className={modelColor(session.model)}>{session.model}</span>
+                  <span className={modelColor()}>{session.model}</span>
                 </div>
               )}
               {session.gitBranch && (
@@ -315,21 +311,21 @@ export function HistoryView() {
             icon={MessageSquare}
           />
           <StatCard
-            label="Est. Cost"
+            label="30-Day Est. Cost"
             value={formatCost(data.stats.totalCostUSD)}
-            sub={`model-aware · all ${data.stats.totalSessions} sessions`}
+            sub="model-aware · transcript retention window"
             icon={DollarSign}
           />
           <StatCard
-            label="Input Tokens"
+            label="30-Day Input Tokens"
             value={formatTokens(data.stats.totalInputTokens)}
-            sub={`all ${data.stats.totalSessions} sessions`}
+            sub={`${data.stats.totalSessions} sessions with transcripts`}
             icon={Zap}
           />
           <StatCard
-            label="Output Tokens"
+            label="30-Day Output Tokens"
             value={formatTokens(data.stats.totalOutputTokens)}
-            sub={`all ${data.stats.totalSessions} sessions`}
+            sub={`${data.stats.totalSessions} sessions with transcripts`}
             icon={Zap}
           />
         </div>
