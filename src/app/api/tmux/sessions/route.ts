@@ -66,10 +66,11 @@ export async function GET() {
   const annotated = await Promise.all(sessions.map(async (s) => {
     const info = ptyInfo.get(s.id);
 
-    // If the PTY server discovered the Claude session ID and we don't have
-    // it stored yet, persist it so cost tracking works across restarts.
+    // If the PTY server discovered a (new) Claude session ID, persist it
+    // so cost tracking works across restarts. Sessions that were respawned
+    // get a new Claude session ID, so always prefer the PTY server's value.
     let claudeSessionId = s.claudeSessionId;
-    if (!claudeSessionId && info?.claudeSessionId) {
+    if (info?.claudeSessionId && info.claudeSessionId !== claudeSessionId) {
       claudeSessionId = info.claudeSessionId;
       updateSession(s.id, { claudeSessionId });
     }
