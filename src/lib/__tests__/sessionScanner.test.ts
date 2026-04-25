@@ -12,7 +12,7 @@ vi.mock("fs/promises", () => ({
 }));
 
 import fs from "fs/promises";
-import { scanActiveSessions, killSession, getSessionCost } from "../sessionScanner";
+import { scanActiveSessions, killSession, getSessionCost, findResumeJsonl } from "../sessionScanner";
 
 // ---------------------------------------------------------------------------
 // scanActiveSessions
@@ -178,5 +178,53 @@ describe("getSessionCost", () => {
     expect(result.inputTokens).toBeUndefined();
     expect(result.outputTokens).toBeUndefined();
     expect(result.turnState).toBe("idle");
+  });
+});
+
+describe("findResumeJsonl", () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+  });
+
+  const VALID_ID = "040e7f58-0678-421f-8fd9-d5a47629ac11";
+
+  it("returns null for a malformed sessionId without touching fs", async () => {
+    const result = await findResumeJsonl("not-a-uuid");
+    expect(result).toBeNull();
+    expect(fs.readdir).not.toHaveBeenCalled();
+  });
+
+  it("returns null when no project dir contains the JSONL", async () => {
+    vi.mocked(fs.readdir).mockResolvedValue([
+      { name: "-proj-a", isDirectory: () => true },
+      { name: "-proj-b", isDirectory: () => true },
+    ] as unknown as Awaited<ReturnType<typeof fs.readdir>>);
+    vi.mocked(fs.access).mockRejectedValue(new Error("ENOENT"));
+
+    const result = await findResumeJsonl(VALID_ID);
+    expect(result).toBeNull();
+    expect(fs.access).toHaveBeenCalledTimes(2);
+  });
+
+  it("returns jsonlPath and projectDir when JSONL is found", async () => {
+    vi.mocked(fs.readdir).mockResolvedValue([
+      { name: "-proj-a", isDirectory: () => true },
+      { name: "-proj-b", isDirectory: () => true },
+    ] as unknown as Awaited<ReturnType<typeof fs.readdir>>);
+    // Miss in -proj-a, hit in -proj-b
+    vi.mocked(fs.access)
+      .mockRejectedValueOnce(new Error("ENOENT"))
+      .mockResolvedValueOnce(undefined);
+
+    const result = await findResumeJsonl(VALID_ID);
+    expect(result).not.toBeNull();
+    expect(result?.projectDir).toBe("-proj-b");
+    expect(result?.jsonlPath).toContain(`${VALID_ID}.jsonl`);
+  });
+
+  it("returns null when PROJECTS_DIR is missing", async () => {
+    vi.mocked(fs.readdir).mockRejectedValue(new Error("ENOENT"));
+    const result = await findResumeJsonl(VALID_ID);
+    expect(result).toBeNull();
   });
 });

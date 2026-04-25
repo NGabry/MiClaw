@@ -7,6 +7,20 @@ vi.mock("@/lib/historyScanner", () => ({
 import { scanHistory } from "@/lib/historyScanner";
 import { GET } from "../route";
 
+const EMPTY_STATS = {
+  totalSessions: 0,
+  totalCostUSD: 0,
+  totalInputTokens: 0,
+  totalOutputTokens: 0,
+  projects: [],
+  dateRange: null,
+  cacheStats: { totalInput: 0, totalCacheRead: 0, totalCacheCreate: 0, hitRate: 0, savedUSD: 0 },
+  modelBreakdown: [],
+  timeSeries: [],
+  toolUsage: [],
+  filesTouched: [],
+};
+
 describe("GET /api/history", () => {
   beforeEach(() => {
     vi.resetAllMocks();
@@ -32,11 +46,12 @@ describe("GET /api/history", () => {
         },
       ],
       stats: {
+        ...EMPTY_STATS,
         totalSessions: 1,
         totalCostUSD: 0.05,
         totalInputTokens: 1000,
         totalOutputTokens: 500,
-        projects: [{ name: "test", path: "/test", count: 1 }],
+        projects: [{ name: "test", path: "/test", count: 1, costUSD: 0.05 }],
         dateRange: { earliest: "2025-12-01T00:00:00Z", latest: "2025-12-01T01:00:00Z" },
       },
       total: 1,
@@ -54,20 +69,14 @@ describe("GET /api/history", () => {
       limit: 50,
       offset: 0,
       withCost: true,
+      sinceDays: 0,
     });
   });
 
   it("passes search and filter query params", async () => {
     vi.mocked(scanHistory).mockResolvedValue({
       sessions: [],
-      stats: {
-        totalSessions: 0,
-        totalCostUSD: 0,
-        totalInputTokens: 0,
-        totalOutputTokens: 0,
-        projects: [],
-        dateRange: null,
-      },
+      stats: EMPTY_STATS,
       total: 0,
     });
 
@@ -80,20 +89,14 @@ describe("GET /api/history", () => {
       limit: 10,
       offset: 20,
       withCost: true,
+      sinceDays: 0,
     });
   });
 
   it("supports withCost=false param", async () => {
     vi.mocked(scanHistory).mockResolvedValue({
       sessions: [],
-      stats: {
-        totalSessions: 0,
-        totalCostUSD: 0,
-        totalInputTokens: 0,
-        totalOutputTokens: 0,
-        projects: [],
-        dateRange: null,
-      },
+      stats: EMPTY_STATS,
       total: 0,
     });
 
@@ -102,6 +105,21 @@ describe("GET /api/history", () => {
 
     expect(scanHistory).toHaveBeenCalledWith(
       expect.objectContaining({ withCost: false }),
+    );
+  });
+
+  it("passes sinceDays param when provided", async () => {
+    vi.mocked(scanHistory).mockResolvedValue({
+      sessions: [],
+      stats: EMPTY_STATS,
+      total: 0,
+    });
+
+    const request = new Request("http://localhost/api/history?sinceDays=7");
+    await GET(request);
+
+    expect(scanHistory).toHaveBeenCalledWith(
+      expect.objectContaining({ sinceDays: 7 }),
     );
   });
 });

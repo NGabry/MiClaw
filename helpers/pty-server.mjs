@@ -90,8 +90,16 @@ function broadcast(sessionId, msg) {
 // Claude session ID discovery
 // ---------------------------------------------------------------------------
 
-function discoverClaudeSessionId(session) {
-  if (session.claudeSessionId) return;
+/**
+ * Probe Claude's session ID from its PID file.
+ *
+ * Passing `{ allowChange: true }` lets us catch ID rotations that happen
+ * mid-session (e.g. --resume failed → fallback fresh spawn → Claude writes
+ * a new sessionId to its PID file). Without this, we'd be stuck with the
+ * first ID ever discovered, which is often the stale --resume target.
+ */
+function discoverClaudeSessionId(session, { allowChange = false } = {}) {
+  if (session.claudeSessionId && !allowChange) return;
   const pid = session.process.pid;
 
   // Check direct PID and child PIDs (shell → claude)
@@ -109,8 +117,12 @@ function discoverClaudeSessionId(session) {
     try {
       if (existsSync(pidFile)) {
         const data = JSON.parse(readFileSync(pidFile, 'utf-8'));
-        if (data.sessionId) {
+        if (data.sessionId && data.sessionId !== session.claudeSessionId) {
+          const prev = session.claudeSessionId;
           session.claudeSessionId = data.sessionId;
+          if (prev) {
+            console.error(`[PTY] Claude session rotated: ${prev} → ${data.sessionId}`);
+          }
           return;
         }
       }
@@ -190,6 +202,9 @@ function spawnPty(sessionId, opts, cols, rows) {
     lastOutputTime: 0,
     activity: 'starting',
     claudeSessionId: null,
+    /** Timers attached during setup; cleared on exit to prevent leaks. */
+    discoveryInterval: null,
+    rediscoveryInterval: null,
   };
 
   const spawnTime = Date.now();
@@ -218,6 +233,8 @@ function spawnPty(sessionId, opts, cols, rows) {
 
   ptyProcess.onExit(({ exitCode }) => {
     ptys.delete(sessionId);
+    if (session.discoveryInterval) clearInterval(session.discoveryInterval);
+    if (session.rediscoveryInterval) clearInterval(session.rediscoveryInterval);
 
     // If a --resume session exits quickly with an error, retry without --resume.
     // This handles cases where the session isn't in sessions-index.json
@@ -242,16 +259,28 @@ function spawnPty(sessionId, opts, cols, rows) {
 
   ptys.set(sessionId, session);
 
-  // Discover Claude session ID in the background
+  // Phase 1 — initial discovery: poll every 1s for up to 60s to capture the
+  // initial sessionId. Claude can take 10+ seconds to write its PID file on
+  // cold starts (especially after a --resume fallback), so a generous window
+  // matters — the previous 10s cap was the root cause of stale stored IDs.
   let attempts = 0;
-  const discoveryInterval = setInterval(() => {
+  session.discoveryInterval = setInterval(() => {
     attempts++;
-    if (session.claudeSessionId || attempts > 10) {
-      clearInterval(discoveryInterval);
+    if (session.claudeSessionId || attempts > 60) {
+      clearInterval(session.discoveryInterval);
+      session.discoveryInterval = null;
       return;
     }
     discoverClaudeSessionId(session);
   }, 1000);
+
+  // Phase 2 — drift detection: every 30s for the lifetime of the session,
+  // re-check the PID file. If Claude rotated its sessionId (internal restart,
+  // resume retry, etc.), catch it and update. The API route's session:list
+  // consumer propagates the new ID to miclaw-sessions.json on its next poll.
+  session.rediscoveryInterval = setInterval(() => {
+    discoverClaudeSessionId(session, { allowChange: true });
+  }, 30000);
 
   return session;
 }

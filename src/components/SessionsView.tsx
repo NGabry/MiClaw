@@ -54,6 +54,7 @@ export function SessionsView() {
   const [newFormPanes, setNewFormPanes] = useState<Set<string>>(new Set());
   const [healthIssues, setHealthIssues] = useState<HealthIssue[]>([]);
   const [healthDismissed, setHealthDismissed] = useState(false);
+  const [adoptError, setAdoptError] = useState<string | null>(null);
 
   // Debounced save to localStorage
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -229,7 +230,11 @@ export function SessionsView() {
           killPid: detected.pid,
         }),
       });
-      if (!res.ok) return;
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        setAdoptError(body?.error || `Adopt failed (HTTP ${res.status})`);
+        return;
+      }
       const newSession = await res.json();
       const newTabId = newSession.id as string;
 
@@ -253,7 +258,9 @@ export function SessionsView() {
         }
         updateLayout({ root: setTab(layout.root), focusedPaneId: focusedId });
       }
-    } catch { /* silent */ }
+    } catch (err) {
+      setAdoptError(err instanceof Error ? err.message : "Adopt failed");
+    }
   }
 
   async function handleCreateSession(name: string, cwd: string, opts?: {
@@ -678,6 +685,24 @@ export function SessionsView() {
   return (
     <PaneCtx.Provider value={ctxValue}>
       <div className="flex flex-col h-full relative">
+        {/* Adopt error banner */}
+        {adoptError && (
+          <div data-testid="adopt-error-banner" className="shrink-0 border-b border-red-500/20 bg-red-500/5 px-4 py-2.5 flex items-start gap-3">
+            <div className="flex-1">
+              <p className="text-xs font-mono text-red-400">
+                <span className="text-red-500 font-semibold">[adopt]</span>{" "}
+                {adoptError}
+              </p>
+            </div>
+            <button
+              onClick={() => setAdoptError(null)}
+              className="text-red-400/60 hover:text-red-400 text-xs font-mono shrink-0 mt-0.5"
+            >
+              dismiss
+            </button>
+          </div>
+        )}
+
         {/* Health issue banner */}
         {healthIssues.length > 0 && !healthDismissed && (
           <div data-testid="health-banner" className="shrink-0 border-b border-red-500/20 bg-red-500/5 px-4 py-2.5 flex items-start gap-3">

@@ -9,6 +9,7 @@ vi.mock("@/lib/miclawSessions", () => ({
 
 vi.mock("@/lib/sessionScanner", () => ({
   getSessionCost: vi.fn(),
+  findResumeJsonl: vi.fn(),
 }));
 
 vi.mock("ws", () => ({
@@ -16,7 +17,7 @@ vi.mock("ws", () => ({
 }));
 
 import { listSessions, createSession, removeSession, updateSession } from "@/lib/miclawSessions";
-import { getSessionCost } from "@/lib/sessionScanner";
+import { getSessionCost, findResumeJsonl } from "@/lib/sessionScanner";
 import WebSocket from "ws";
 import { GET, POST, DELETE } from "../sessions/route";
 
@@ -200,6 +201,11 @@ describe("GET /api/tmux/sessions", () => {
 describe("POST /api/tmux/sessions", () => {
   beforeEach(() => {
     vi.resetAllMocks();
+    // Default: preflight succeeds for any resumeId
+    vi.mocked(findResumeJsonl).mockResolvedValue({
+      jsonlPath: "/fake/path.jsonl",
+      projectDir: "-fake",
+    });
   });
 
   it("creates a new session", async () => {
@@ -273,6 +279,43 @@ describe("POST /api/tmux/sessions", () => {
     expect(createSession).toHaveBeenCalledWith("adopted", "/test", "session-abc", expect.objectContaining({
       killPid: 99999,
     }));
+  });
+
+  it("returns 400 when resumeId's JSONL is not found", async () => {
+    vi.mocked(findResumeJsonl).mockResolvedValue(null);
+
+    const request = new Request("http://localhost/api/tmux/sessions", {
+      method: "POST",
+      body: JSON.stringify({
+        name: "adopted",
+        cwd: "/test",
+        resumeId: "missing-session-id",
+      }),
+    });
+
+    const response = await POST(request);
+    expect(response.status).toBe(400);
+    const body = await response.json();
+    expect(body.code).toBe("RESUME_NOT_FOUND");
+    expect(createSession).not.toHaveBeenCalled();
+  });
+
+  it("skips preflight when resumeId is not provided", async () => {
+    vi.mocked(createSession).mockReturnValue({
+      id: "miclaw-fresh",
+      displayName: "fresh",
+      cwd: "/test",
+      created: Date.now(),
+    });
+
+    const request = new Request("http://localhost/api/tmux/sessions", {
+      method: "POST",
+      body: JSON.stringify({ name: "fresh", cwd: "/test" }),
+    });
+
+    const response = await POST(request);
+    expect(response.status).toBe(200);
+    expect(findResumeJsonl).not.toHaveBeenCalled();
   });
 
   it("returns 500 on creation error", async () => {

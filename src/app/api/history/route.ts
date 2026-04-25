@@ -9,7 +9,9 @@ export async function GET(request: Request) {
   const limit = parseInt(url.searchParams.get("limit") || "50", 10);
   const offset = parseInt(url.searchParams.get("offset") || "0", 10);
   const withCost = url.searchParams.get("withCost") !== "false";
+  const sinceDaysRaw = url.searchParams.get("sinceDays");
+  const sinceDays = sinceDaysRaw ? Math.max(0, parseInt(sinceDaysRaw, 10) || 0) : 0;
 
-  const result = await scanHistory({ search, project, limit, offset, withCost });
+  const result = await scanHistory({ search, project, limit, offset, withCost, sinceDays });
   return Response.json(result);
 }

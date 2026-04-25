@@ -404,6 +404,28 @@ export async function killSession(pid: number): Promise<boolean> {
   }
 }
 
+/** Locate the JSONL for a Claude sessionId across project dirs. Used to
+ *  preflight `claude --resume <id>` — if this returns `null`, --resume will
+ *  fail and fall back to a fresh session, losing all context. */
+export async function findResumeJsonl(sessionId: string): Promise<{
+  jsonlPath: string;
+  projectDir: string;
+} | null> {
+  if (!/^[0-9a-f-]{36}$/i.test(sessionId)) return null;
+  try {
+    const projectDirs = await fs.readdir(PROJECTS_DIR, { withFileTypes: true });
+    for (const dir of projectDirs) {
+      if (!dir.isDirectory()) continue;
+      const jsonlPath = path.join(PROJECTS_DIR, dir.name, `${sessionId}.jsonl`);
+      try {
+        await fs.access(jsonlPath);
+        return { jsonlPath, projectDir: dir.name };
+      } catch { /* not in this dir */ }
+    }
+  } catch { /* PROJECTS_DIR missing */ }
+  return null;
+}
+
 /** Get cost/token/turnState data for a session by its Claude session ID (used by MiClaw sessions) */
 export async function getSessionCost(sessionId: string): Promise<{
   costUSD?: number;

@@ -5,7 +5,7 @@
  * Last updated: 2025-05 (Claude 4.5/4.6 family)
  */
 
-interface ModelPricing {
+export interface ModelPricing {
   input: number;       // non-cached input $/MTok
   cacheRead: number;   // cache read $/MTok
   cacheCreate: number; // cache write $/MTok
@@ -21,7 +21,7 @@ const PRICING: Record<string, ModelPricing> = {
 // Default to Opus since it's the default Claude Code model
 const DEFAULT_PRICING = PRICING.opus;
 
-function getPricing(model?: string): ModelPricing {
+export function getPricing(model?: string): ModelPricing {
   if (!model) return DEFAULT_PRICING;
   const lower = model.toLowerCase();
   if (lower.includes("opus")) return PRICING.opus;

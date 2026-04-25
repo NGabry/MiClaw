@@ -1,5 +1,5 @@
 import { listSessions, createSession, removeSession, updateSession } from "@/lib/miclawSessions";
-import { getSessionCost } from "@/lib/sessionScanner";
+import { getSessionCost, findResumeJsonl } from "@/lib/sessionScanner";
 import WebSocket from "ws";
 
 export const dynamic = "force-dynamic";
@@ -95,6 +95,19 @@ export async function GET() {
 
 export async function POST(request: Request) {
   const { name, cwd, resumeId, killPid, permissionMode, model, allowedTools, appendSystemPrompt, worktree } = await request.json();
+
+  // Preflight resume: if the target JSONL can't be found, `claude --resume`
+  // will error out and pty-server silently falls back to a fresh spawn,
+  // losing context and cost tracking. Fail fast with a clear error instead.
+  if (resumeId) {
+    const found = await findResumeJsonl(resumeId);
+    if (!found) {
+      return Response.json({
+        error: `Cannot resume session ${resumeId}: no JSONL found under ~/.claude/projects/. The session may have been cleaned up, or Claude CLI hasn't registered it yet.`,
+        code: "RESUME_NOT_FOUND",
+      }, { status: 400 });
+    }
+  }
 
   try {
     const session = createSession(name || undefined, cwd || undefined, resumeId || undefined, {
