@@ -23,6 +23,7 @@ A visualization and editing dashboard for Claude Code configuration. Scans `~/.c
 - `src/lib/sphereData.ts` -- Transforms scanned config into hierarchical visualization data with parent-child nesting.
 - `src/lib/constants.ts` -- Paths to Claude config directories + `shortenHomePath` helper.
 - `src/lib/actions.ts` -- Server Actions for write operations: `saveAgent`, `saveSkill`, `saveCommand`, `saveInstructionFile`, `deleteItem`. All writes are path-validated to stay within `~/.claude/`.
+- `src/lib/pricing.ts` -- Claude model pricing lookup (Opus/Sonnet/Haiku) with per-million-token USD costs for input, output, cache read, and cache creation. Exports `estimateCost()` for computing session cost from token counts.
 
 ### Visualization (client components)
 - `src/components/OverviewClient.tsx` -- Orchestrator: manages view toggle (spheres/tree), shared selection state, and the DetailDrawer. Both views shift left when the drawer opens.
@@ -85,7 +86,9 @@ A visualization and editing dashboard for Claude Code configuration. Scans `~/.c
 ### History feature (session history + usage dashboard)
 - `src/lib/historyScanner.ts` -- Reads `sessions-index.json` from all `~/.claude/projects/` directories for fast session listing. Enriches with cost/token data from JSONL files using mtime-based caching. Supports search, project filter, and pagination.
 - `src/app/api/history/route.ts` -- GET returns paginated session history with stats. Query params: `q` (search), `project` (filter), `limit`, `offset`, `withCost`.
-- `src/components/HistoryView.tsx` -- Client component: stat cards (total sessions, cost, tokens), searchable/filterable session list, expandable detail view, pagination. Model-aware color coding (Opus=purple, Sonnet=cyan, Haiku=green).
+- `src/components/HistoryView.tsx` -- Client component: stat cards (total sessions, cost, tokens), daily cost line chart with rolling window, per-session sparklines, searchable/filterable session list, expandable detail view, pagination. Model-aware color coding (Opus=purple, Sonnet=cyan, Haiku=green).
+- `src/components/charts/LineChart.tsx` -- Interactive SVG area/line chart with hover tooltips and customizable axis formatting. Used for daily cost trends in HistoryView.
+- `src/components/charts/Sparkline.tsx` -- Minimal inline SVG sparkline (no axes/labels) with accent-colored fill. Used for per-session cost visualization.
 
 ### API routes (additional)
 - `src/app/api/health/route.ts` -- GET returns health check status (claude CLI, node-pty, PTY server, Node.js version).
@@ -218,6 +221,10 @@ Published to npm as `miclaw-app`. End users run:
 npx miclaw-app
 ```
 The `prepublishOnly` script builds standalone output. The CLI (`bin/miclaw.mjs`) starts the server on a random port and opens the browser.
+
+### npm publish workflow
+
+`.github/workflows/publish.yml` publishes to npm via `workflow_dispatch` with a semver bump parameter (patch/minor/major). Bumps version, builds, publishes, and commits the version change back to `main`.
 
 ## Important Notes
 

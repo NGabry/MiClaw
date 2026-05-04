@@ -70,6 +70,16 @@ Always available (no command mode needed):
 
 ---
 
+## History & usage
+
+A searchable, filterable dashboard of every Claude Code session across all your projects.
+
+- **Session history** -- browse every past session with model, project, duration, and token counts. Search by title or filter by project.
+- **Cost dashboard** -- total spend, token usage, and session counts at a glance. Daily cost trend chart with a rolling window. Per-session sparklines show cost distribution.
+- **Model breakdown** -- color-coded by model (Opus, Sonnet, Haiku) so you can see where your budget is going.
+
+---
+
 ## Config dashboard
 
 MiClaw also scans `~/.claude/` and every project-level config to give you a unified picture of how Claude Code is wired across your machine.
@@ -101,6 +111,8 @@ bun run dev
 See [CLAUDE.md](CLAUDE.md) for more
 
 ## Publishing
+
+Automated via GitHub Actions -- trigger the `publish` workflow with a semver bump (patch/minor/major). Or manually:
 
 ```bash
 npm publish
